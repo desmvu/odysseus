@@ -37,6 +37,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
+# CUDA toolkit for llama.cpp
+RUN apt-get update \
+    && apt-get install -y wget gnupg \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i cuda-keyring_1.1-1_all.deb \
+    && mkdir -p /etc/crypto-policies/back-ends \
+    && echo '[hash_algorithms]' > /etc/crypto-policies/back-ends/apt-sequoia.config \
+    && echo 'sha1 = "always"' >> /etc/crypto-policies/back-ends/apt-sequoia.config \
+    && apt-get update \
+    && apt-get install -y cuda-toolkit \
+    && rm -f /etc/crypto-policies/back-ends/apt-sequoia.config \
+    && rm -rf /var/lib/apt/lists/*
+
 # libgl1/libglib2.0-0t64/libxcb1 are runtime shared libs (libGL.so.1,
 # libglib-2.0/libgthread, libxcb.so.1) that opencv-python (cv2) loads. The
 # slim base omits them, so the Cookbook "install realesrgan" path imports cv2
@@ -77,6 +90,21 @@ ARG INSTALL_OPTIONAL=false
 COPY requirements.txt requirements-optional.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$INSTALL_OPTIONAL" = "true" ]; then pip install --no-cache-dir -r requirements-optional.txt; fi
+
+# CUDA llama-cpp-python + runtime libs
+RUN pip install --no-cache-dir llama-cpp-python==0.3.34 \
+    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
+    --force-reinstall
+RUN pip install --no-cache-dir nvidia-cuda-runtime-cu12 nvidia-cublas-cu12
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.14/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.14/site-packages/nvidia/cublas/lib:$LD_LIBRARY_PATH
+
+# Pre-built llama.cpp server
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+ENV CUDACXX="/usr/local/cuda/bin/nvcc"
+
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp /app/llama.cpp \
+    && cmake -B /app/llama.cpp/build -S /app/llama.cpp -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /app/llama.cpp/build --config Release -j$(nproc)
 
 # python-magic powers content-based MIME sniffing in src/upload_handler.py.
 # Image-only (not in requirements.txt) because it needs the libmagic1 system
