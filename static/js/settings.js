@@ -3550,7 +3550,44 @@ async function initUnifiedIntegrations() {
     </div>`;
   }
 
+  async function renderDefaultCalendar() {
+    const card = el('settings-calendar-card');
+    const sel = el('set-default-calendar');
+    const msg = el('set-default-calendar-msg');
+    if (!card || !sel) return;
+    const [cals, pref] = await Promise.all([
+      fetch('/api/calendar/calendars', { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : { calendars: [] }).catch(() => ({ calendars: [] })),
+      fetch('/api/prefs/default_calendar_id', { credentials: 'same-origin' })
+        .then(r => r.ok ? r.json() : { value: '' }).catch(() => ({ value: '' })),
+    ]);
+    const list = cals.calendars || [];
+    if (list.length < 2) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    sel.innerHTML = list.map(c => `<option value="${esc(c.href)}">${esc(c.name)}</option>`).join('');
+    const saved = pref.value || '';
+    sel.value = list.some(c => c.href === saved)
+      ? saved
+      : (list.find(c => (c.name || '').toLowerCase() === 'personal') || list[0]).href;
+    if (sel._wired) return;
+    sel._wired = true;
+    sel.addEventListener('change', async () => {
+      try {
+        await fetch('/api/prefs/default_calendar_id', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: sel.value }),
+        });
+        if (msg) msg.textContent = 'Saved.';
+      } catch (e) {
+        if (msg) msg.textContent = 'Could not save: ' + (e.message || 'unknown error');
+      }
+    });
+  }
+
   async function renderList() {
+    renderDefaultCalendar().catch(e => console.warn('Failed to load default calendar', e));
     const items = await fetchAll();
     const noticeHtml = integrationNotice ? `
       <div class="intg-followup-note" style="display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:8px;border:1px solid color-mix(in srgb, var(--accent, var(--red)) 35%, transparent);border-left:3px solid var(--accent, var(--red));border-radius:5px;background:color-mix(in srgb, var(--accent, var(--red)) 8%, transparent);font-size:11px;">

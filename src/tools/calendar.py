@@ -22,6 +22,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
     from core.database import SessionLocal, CalendarCal, CalendarEvent, Note
     from routes.calendar_routes import (
         _ensure_default_calendar,
+        _preferred_calendar,
         _parse_dt,
         _parse_dt_pair,
         parse_due_for_user,
@@ -326,7 +327,7 @@ async def do_manage_calendar(content: str, owner: Optional[str] = None) -> Dict:
                            .filter(CalendarCal.id.like(f"{cal_href}%"))
                            .first())
             if not cal:
-                cal = _ensure_default_calendar(db, owner)
+                cal = _preferred_calendar(db, owner)
 
             all_day = bool(args.get("all_day", False))
             try:

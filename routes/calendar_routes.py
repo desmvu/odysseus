@@ -264,6 +264,50 @@ def _begin_sqlite_default_write(db) -> None:
         connection.exec_driver_sql("BEGIN IMMEDIATE")
 
 
+DEFAULT_CALENDAR_PREF_KEY = "default_calendar_id"
+
+
+def _default_calendar_pref(owner: str) -> str:
+    """Read the caller's chosen default calendar id from per-user prefs.
+
+    ``FALLBACK_OWNER`` means the request had no authenticated user, and the
+    prefs API stores those writes in the auth-disabled slot, which
+    ``_load_for_user`` only returns for ``None``.
+    """
+    prefs_user = None if (not owner or owner == FALLBACK_OWNER) else owner
+    try:
+        from routes.prefs_routes import _load_for_user
+        prefs = _load_for_user(prefs_user) or {}
+    except (ImportError, OSError, ValueError):
+        return ""
+    value = prefs.get(DEFAULT_CALENDAR_PREF_KEY)
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _preferred_calendar(db, owner: str = None) -> CalendarCal:
+    """Return the calendar to write to when the caller named none.
+
+    Order: the user's Default Calendar preference, then a calendar named
+    Personal, then any owned calendar, then a lazily created default.  CalDAV
+    collection order is server-defined and commonly returns a read-only
+    collection such as Contact birthdays first, so position alone is never a
+    safe implicit target.
+    """
+    owner = owner or FALLBACK_OWNER
+    calendars = db.query(CalendarCal).filter(CalendarCal.owner == owner).all()
+    preferred_id = _default_calendar_pref(owner)
+    if preferred_id:
+        for calendar in calendars:
+            if calendar.id == preferred_id:
+                return calendar
+    for calendar in calendars:
+        if (calendar.name or "").strip().casefold() == "personal":
+            return calendar
+    if calendars:
+        return calendars[0]
+    return _ensure_default_calendar(db, owner)
+
+
 def _ensure_default_calendar(db, owner: str = None) -> CalendarCal:
     """Return the owner's calendar, staging a default in the caller's transaction.
 
@@ -1219,7 +1263,7 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
                 if cal and (cal.owner is None or cal.owner != owner):
                     raise HTTPException(404, "Calendar not found")
             if not cal:
-                cal = _ensure_default_calendar(db, owner)
+                cal = _preferred_calendar(db, owner)
 
             uid = str(uuid.uuid4())
             # Use the tz-detecting parser so events posted with an offset
@@ -1654,11 +1698,41 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         if tz_hint:
             set_user_tz_name(tz_hint)
 
-        url, model, headers = resolve_endpoint("utility", owner=owner or None)
-        if not url:
+        # An unset Utility Model means “Same as chat”. The calendar lives
+        # outside a chat, so the frontend supplies its currently selected
+        # session. Use that session's concrete route as the fallback; this is
+        # important when it differs from the global Default Chat Model.
+        fallback_url = fallback_model = fallback_headers = None
+        session_id = str(body.get("session") or "").strip()
+        if session_id:
+            try:
+                from core.models import get_session_manager_instance
+                session_manager = get_session_manager_instance()
+                session = session_manager.get_session(session_id) if session_manager else None
+                if session and getattr(session, "owner", None) == owner:
+                    fallback_url = session.endpoint_url
+                    fallback_model = session.model
+                    fallback_headers = session.headers
+            except (KeyError, AttributeError):
+                pass
+
+        url, model, headers = resolve_endpoint(
+            "utility", fallback_url, fallback_model, fallback_headers, owner=owner or None
+        )
+        if not url or not model:
             url, model, headers = resolve_endpoint("default", owner=owner or None)
         if not url or not model:
             return {"ok": False, "error": "No LLM endpoint configured"}
+
+        db = SessionLocal()
+        try:
+            calendar_names = [
+                (cal.name or "").strip()
+                for cal in db.query(CalendarCal).filter(CalendarCal.owner == owner).all()
+                if (cal.name or "").strip()
+            ]
+        finally:
+            db.close()
 
         now = now_user_local()
         now_iso = now.strftime("%Y-%m-%dT%H:%M:%S")
@@ -1675,6 +1749,7 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
               "time, treat it as an all-day event.\n\n"
               "Output ONLY this JSON shape, nothing else:\n"
               "{\n"
+              '  "calendar": "<exact calendar name from the list below, or empty>",\n'
               '  "summary": "<event title, capitalized>",\n'
               '  "dtstart": "<YYYY-MM-DDTHH:MM:00>",\n'
               '  "dtend":   "<YYYY-MM-DDTHH:MM:00>",\n'
@@ -1683,7 +1758,10 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
               '  "description": "",\n'
               '  "confidence": <0.0-1.0>\n'
               "}\n"
-              "For all-day events use \"YYYY-MM-DD\" (no time) for both fields."
+              "For all-day events use \"YYYY-MM-DD\" (no time) for both fields.\n"
+              "Set \"calendar\" only when the text names one of these calendars: "
+            + (", ".join(calendar_names) if calendar_names else "(none available)")
+            + ". Never put the calendar name in the summary."
         )
 
         try:
@@ -1701,15 +1779,56 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         except Exception as e:
             return {"ok": False, "error": f"LLM call failed: {e}"}
 
-        cleaned = strip_think(raw or "", prose=False, prompt_echo=True)
-        cleaned = _re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=_re.MULTILINE).strip()
-        m = _re.search(r"\{[\s\S]*\}", cleaned)
-        if not m:
-            return {"ok": False, "error": "Could not extract JSON", "raw": cleaned[:400]}
-        try:
-            parsed = _json.loads(m.group())
-        except Exception as e:
-            return {"ok": False, "error": f"Invalid JSON: {e}", "raw": cleaned[:400]}
+        def _decode_event_json(value):
+            """Extract the first valid JSON object from imperfect model output."""
+            cleaned_value = strip_think(value or "", prose=False, prompt_echo=True)
+            cleaned_value = _re.sub(
+                r"^```(?:json)?\s*|\s*```$", "", cleaned_value, flags=_re.MULTILINE
+            ).strip()
+            decoder = _json.JSONDecoder()
+            # Models sometimes add a sentence before/after JSON or include a
+            # brace in that prose. Try every object start rather than greedily
+            # matching from the first brace through the last.
+            for match in _re.finditer(r"\{", cleaned_value):
+                try:
+                    candidate, _ = decoder.raw_decode(cleaned_value[match.start():])
+                except _json.JSONDecodeError:
+                    continue
+                if isinstance(candidate, dict):
+                    return candidate, cleaned_value
+            return None, cleaned_value
+
+        parsed, cleaned = _decode_event_json(raw)
+        if parsed is None:
+            # A transport-successful response can still be prose/truncated
+            # JSON, especially just after a local model wakes up. Give the
+            # same route one compact, schema-only repair attempt before making
+            # the user retype the event.
+            try:
+                repair = await llm_call_async(
+                    url=url, model=model,
+                    messages=[
+                        {"role": "system", "content": (
+                            "Return ONLY one valid JSON object for this calendar event. "
+                            "No thinking, prose, Markdown, or code fence. Required keys: "
+                            "calendar, summary, dtstart, dtend, all_day, location, description, confidence. "
+                            f"Current user-local timestamp: {now_iso}."
+                        )},
+                        {"role": "user", "content": text},
+                    ],
+                    headers=headers,
+                    temperature=0.0,
+                    max_tokens=512,
+                    timeout=30,
+                )
+                parsed, repaired = _decode_event_json(repair)
+                if parsed is not None:
+                    cleaned = repaired
+            except Exception as e:
+                logger.info("Calendar JSON repair attempt failed: %s", e)
+        if parsed is None:
+            logger.warning("Calendar quick-parse returned no usable JSON (chars=%d)", len(cleaned))
+            return {"ok": False, "error": "Could not parse calendar details", "raw": cleaned[:400]}
 
         # Light validation / defaults so the frontend can trust the shape.
         summary = (parsed.get("summary") or text)[:200]
@@ -1723,6 +1842,13 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
         summary = _re.sub(r'\b\d{1,2}(:\d{2})?\s*(am|pm)\b', '', summary, flags=_re.IGNORECASE)
         summary = _re.sub(r'\s+@\s+(?=\d)', ' ', summary)  # drop "@" when right before a time
         summary = _re.sub(r'\s+', ' ', summary).strip(' -—,@')
+        # Only echo back a calendar the caller actually owns, matched by name,
+        # so the client can preselect it without trusting free-form model text.
+        requested_calendar = (parsed.get("calendar") or "").strip().casefold()
+        calendar_name = next(
+            (name for name in calendar_names if name.casefold() == requested_calendar),
+            "",
+        )
         all_day = bool(parsed.get("all_day"))
         dtstart = (parsed.get("dtstart") or "").strip()
         dtend   = (parsed.get("dtend") or "").strip()
@@ -1768,6 +1894,7 @@ def setup_calendar_routes(upload_handler=None) -> APIRouter:
                 "all_day": all_day,
                 "location": (parsed.get("location") or "").strip()[:200],
                 "description": (parsed.get("description") or "").strip()[:2000],
+                "calendar": calendar_name,
             },
             "confidence": float(parsed.get("confidence", 0.7) or 0.7),
         }

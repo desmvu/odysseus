@@ -9,6 +9,7 @@ import { topPortalZ } from './toolWindowZOrder.js';
 import { makeWindowDraggable } from './windowDrag.js';
 import { attachColorPicker } from './colorPicker.js';
 import { bindMenuDismiss } from './escMenuStack.js';
+import sessionModule from './sessions.js';
 import {
   WEEKDAYS, WEEKDAYS_SUN, MONTHS, MON_SHORT,
   CAL_PALETTE, CAL_COLORS, _CAL_CUSTOM_GRADIENT, _TYPE_PALETTE,
@@ -17,6 +18,17 @@ import {
   _calReadableTextColor,
   _ds, _addDays, _shiftDT, _tzOffset, _localDateOf,
 } from './calendar/utils.js';
+
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (pre-zoom/layout pixels). Divide a post-zoom
+// value by this ratio right before writing it into style.left/top/right/
+// bottom/width/height.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
 
 const API_BASE = window.location.origin;
 // Open a file picker, upload the chosen image, return the URL string.
@@ -57,6 +69,16 @@ let _events = [];
 let _allEvents = {};
 let _fetchedRanges = [];
 let _calendars = [];
+// A CalDAV server can return read-only collections (such as Contact
+// birthdays) before normal calendars. Honour the user's Default Calendar
+// setting, then the conventional Personal calendar, before falling back to
+// whatever the server happened to list first.
+let _defaultCalendarId = '';
+function _defaultCalendar() {
+  return _calendars.find(c => c.href === _defaultCalendarId)
+    || _calendars.find(c => (c.name || '').trim().toLowerCase() === 'personal')
+    || _calendars[0];
+}
 let _hiddenCals = new Set();
 let _hiddenTypes = new Set();   // event_type values to hide
 // "Only important" filter — when true, only events with importance
@@ -191,6 +213,11 @@ async function _fetchCalendars() {
     });
   } catch (e) { _calendars = []; _calendarsError = e.message || 'Connection failed'; }
 
+  try {
+    const res = await fetch(`${API_BASE}/api/prefs/default_calendar_id`, { credentials: 'same-origin' });
+    _defaultCalendarId = res.ok ? ((await res.json()).value || '') : '';
+  } catch { _defaultCalendarId = ''; }
+
   // First open: fire a background CalDAV pull. We don't await — the
   // initial render uses whatever's already cached locally, and the
   // sync's writes show up on the next paint after it resolves.
@@ -225,7 +252,7 @@ async function _syncCaldav(interactive) {
 }
 
 function _optimisticEvent(data, uid) {
-  const cal = _calendars.find(c => c.href === data.calendar_href) || _calendars[0];
+  const cal = _calendars.find(c => c.href === data.calendar_href) || _defaultCalendar();
   return {
     uid,
     summary: data.summary || '',
@@ -251,25 +278,25 @@ function _optimisticEvent(data, uid) {
 async function _createEvent(data) {
   const tempUid = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   _allEvents[tempUid] = _optimisticEvent(data, tempUid);
-  fetch(`${API_BASE}/api/calendar/events`, {
-    method: 'POST', credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
-  }).then(async r => {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }).then(d => {
-    if (d.uid) {
-      delete _allEvents[tempUid];
-      _allEvents[d.uid] = _optimisticEvent(data, d.uid);
-      _saveCache && _saveCache();
-      if (_open) _render();
-    }
-  }).catch((e) => {
+  try {
+    const response = await fetch(`${API_BASE}/api/calendar/events`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const created = await response.json();
+    if (!created.uid) throw new Error('Calendar did not return an event ID');
+    delete _allEvents[tempUid];
+    _allEvents[created.uid] = _optimisticEvent(data, created.uid);
+    _saveCache && _saveCache();
+    if (_open) _render();
+    return created;
+  } catch (e) {
     delete _allEvents[tempUid];
     if (_open) _render();
     if (window.uiModule) window.uiModule.showError('Failed to create event: ' + (e?.message || 'unknown'));
-  });
-  return { uid: tempUid };
+    throw e;
+  }
 }
 
 async function _updateEvent(uid, data) {
@@ -527,8 +554,9 @@ function _clampDropdown(dropdown, anchorRect) {
     const above = anchorRect.top - 4 - h;
     top = above >= margin ? above : Math.max(margin, vh - margin - h);
   }
-  dropdown.style.left = `${left}px`;
-  dropdown.style.top = `${top}px`;
+  const zr = _zoomRatio();
+  dropdown.style.left = `${left / zr}px`;
+  dropdown.style.top = `${top / zr}px`;
   dropdown.style.right = 'auto';
 }
 
@@ -538,7 +566,8 @@ function _showEventMoreMenu(ev, anchor) {
   dropdown.className = 'cal-event-dropdown';
   let closeMenu = () => dropdown.remove();
   const rect = anchor.getBoundingClientRect();
-  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:180px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${rect.bottom + 4}px;left:0px;visibility:hidden;`;
+  const zr = _zoomRatio();
+  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:180px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${(rect.bottom + 4) / zr}px;left:0px;visibility:hidden;`;
 
   const _item = (icon, label, onClick, danger) => {
     const it = document.createElement('div');
@@ -739,6 +768,7 @@ function _saveQuickAddState() {
 // defer the render and flush it on blur instead.
 let _renderPending = false;
 let _qaSubmitting = false;
+let _qaFailure = '';
 function _qaTyping() {
   const el = document.getElementById('cal-quickadd');
   return !!el && document.activeElement === el;
@@ -2006,6 +2036,7 @@ function _wireAll(body) {
     const _submitQA = async () => {
       const text = _qaInput.value.trim();
       if (!text || _qaSubmitting) return;
+      _qaFailure = '';
       // Use a flag rather than `disabled` to block double-submit — disabling
       // the input blurs it, which would flush a deferred render and wipe the
       // spinner's container mid-parse.
@@ -2034,50 +2065,66 @@ function _wireAll(body) {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, tz, tz_offset: tzOffset }),
+          body: JSON.stringify({
+            text,
+            tz,
+            tz_offset: tzOffset,
+            // “Same as chat” means the selected chat, which can differ from
+            // the global Default Chat Model used when no chat is open.
+            session: sessionModule?.getCurrentSessionId?.() || '',
+          }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {
-          if (_qaStatus) _qaStatus.textContent = '';
-          uiModule.showError('Quick-add: ' + (data.error || data.detail || `HTTP ${res.status}`));
+          const reason = data.error || data.detail || `HTTP ${res.status}`;
+          // Also report inside the calendar: a toast can be missed behind the
+          // floating window, which makes a failed parse look like a no-op.
+          _qaFailure = reason;
+          // The parser returns a short raw-model excerpt for malformed output.
+          // Surface it so a parser/model failure is never mistaken for a
+          // successful quick-add that silently did nothing.
+          const detail = data.raw ? ` (${String(data.raw).slice(0, 220)})` : '';
+          uiModule.showError('Quick-add: ' + reason + detail);
           return;
         }
-        // Open the bespoke event form, then push the parsed fields in.
+        // Let the user review the AI's interpretation before creating it.
         const ev = data.event;
         const ds = (ev.dtstart || '').slice(0, 10);
-        const de = (ev.dtend   || '').slice(0, 10) || ds;
+        const de = (ev.dtend || '').slice(0, 10) || ds;
+        // _render deliberately defers while Quick Add has focus. The parsed
+        // form must replace that input, so release focus first; its blur
+        // handler flushes any deferred background render before we show it.
+        _qaInput.blur();
         _showEventForm(null, ds, de);
         requestAnimationFrame(() => {
-          const set = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+          const set = (id, value) => { const el = document.getElementById(id); if (el && value != null) el.value = value; };
+          const named = ev.calendar && _calendars.find(c => c.name === ev.calendar);
+          if (named) set('cal-f-cal', named.href);
           set('cal-f-sum', ev.summary);
           set('cal-f-loc', ev.location);
           set('cal-f-desc', ev.description);
           if (ev.all_day) {
-            const ad = document.getElementById('cal-f-allday');
-            if (ad && !ad.checked) { ad.checked = true; ad.dispatchEvent(new Event('change')); }
+            const allDay = document.getElementById('cal-f-allday');
+            if (allDay && !allDay.checked) { allDay.checked = true; allDay.dispatchEvent(new Event('change')); }
           } else {
-            const t1 = _fmtTime(ev.dtstart);
-            const t2 = _fmtTime(ev.dtend);
-            if (t1) set('cal-f-start', t1);
-            if (t2) set('cal-f-end', t2);
+            set('cal-f-start', _fmtTime(ev.dtstart));
+            set('cal-f-end', _fmtTime(ev.dtend));
             document.getElementById('cal-f-start')?.dispatchEvent(new Event('input'));
           }
-          // Make sure the details panel is open so the user can verify time.
           document.querySelector('.cal-form-bespoke')?.classList.add('is-expanded');
-          const det = document.getElementById('cal-form-details');
-          if (det) det.setAttribute('aria-hidden', 'false');
-          // Trigger Apple-Maps link sync now that location is filled in.
+          document.getElementById('cal-form-details')?.setAttribute('aria-hidden', 'false');
           document.getElementById('cal-f-loc')?.dispatchEvent(new Event('input'));
         });
-        // Reset for next quick add.
         _qaInput.value = '';
       } catch (e) {
+        _qaFailure = e.message || 'Quick-add failed';
         uiModule.showError('Quick-add failed: ' + e.message);
       } finally {
         _qaSubmitting = false;
         clearTimeout(_qaSpinTimer);
         if (_qaSpin) { try { _qaSpin.destroy(); } catch {} _qaSpin.element?.remove(); }
-        if (_qaStatus) _qaStatus.textContent = '';
+        const status = document.getElementById('cal-quickadd-status');
+        if (status) status.textContent = _qaFailure ? `failed — ${_qaFailure}` : '';
       }
     };
     _qaInput.addEventListener('keydown', (e) => {
@@ -2797,6 +2844,9 @@ function _parseTitleTime(text) {
 function _showEventForm(existing, defaultDate, defaultEndDate) {
   const body = document.getElementById('cal-body');
   if (!body) return;
+  // The form owns #cal-body from here on. Invalidate any grid render still
+  // awaiting its /events fetch so it cannot paint over the form afterwards.
+  _renderToken++;
   const isEdit = !!existing;
   const ds = existing ? _localDateOf(existing.dtstart) : (defaultDate || _today());
   const de = existing && existing.dtend ? _localDateOf(existing.dtend) : (defaultEndDate || ds);
@@ -2806,8 +2856,9 @@ function _showEventForm(existing, defaultDate, defaultEndDate) {
   // Default to all-day when dragging across multiple days
   const ad = existing ? existing.all_day : (defaultEndDate && defaultEndDate !== defaultDate);
 
+  const defaultCalendar = _defaultCalendar();
   let calOpts = _calendars.filter(c => !_hiddenCals.has(c.href)).map(c =>
-    `<option value="${_e(c.href)}" ${existing && existing.calendar_href === c.href ? 'selected' : ''}>${_e(c.name)}</option>`
+    `<option value="${_e(c.href)}" ${(existing ? existing.calendar_href : defaultCalendar?.href) === c.href ? 'selected' : ''}>${_e(c.name)}</option>`
   ).join('');
 
   // "Bespoke" event form: a big clock-face hero (time + date) and a single
@@ -3181,7 +3232,7 @@ function _showEventForm(existing, defaultDate, defaultEndDate) {
       description: document.getElementById('cal-f-desc').value,
       location: document.getElementById('cal-f-loc').value,
       rrule: document.getElementById('cal-f-rrule').value || '',
-      calendar_href: document.getElementById('cal-f-cal')?.value || (_calendars[0]?.href || ''),
+      calendar_href: document.getElementById('cal-f-cal')?.value || (_defaultCalendar()?.href || ''),
       color: colorVal || undefined,
     };
     try {
