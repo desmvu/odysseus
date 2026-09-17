@@ -127,6 +127,27 @@ def test_ordered_lists_render_as_one_unwrapped_ol(node_available):
     assert "<p>After</p>" in html
 
 
+def test_ordered_list_interrupted_by_a_block_keeps_counting(node_available):
+    """An interrupted run used to restart every following <ol> at 1."""
+    html = _run_markdown_case(
+        "1. First step\n\n"
+        "Explanation paragraph.\n\n"
+        "2. Second step\n\n"
+        "3. Third step\n"
+    )
+
+    assert "<ol><li>First step</li></ol>" in html
+    assert '<ol start="2"><li>Second step</li></ol>' in html
+    assert '<ol start="3"><li>Third step</li></ol>' in html
+
+
+def test_ordered_list_starting_above_one_keeps_its_number(node_available):
+    html = _run_markdown_case("10. Vector DB\n11. Something else\n")
+
+    assert '<ol start="10">' in html
+    assert html.count("<li>") == 2
+
+
 def test_table_separator_row_not_rendered_as_data(node_available):
     html = _run_markdown_case("| A | B |\n|---|---|\n| 1 | 2 |")
 

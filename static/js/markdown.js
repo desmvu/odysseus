@@ -838,9 +838,15 @@ export function mdToHtml(src, opts) {
        .replace(/^## (.*)$/gm, '<h2>$1</h2>')
        .replace(/^# (.*)$/gm, '<h1>$1</h1>');
 
-  // Ordered lists (1. 2. 3. etc.)
-  s = s.replace(/^(\d+)\. (.*)$/gm, '<oli>$2</oli>');
-  s = s.replace(/(?:^|\n)(<oli>[\s\S]*?)(?=\n(?!<oli>)|$)/g, m => `<ol>${m.trim().replace(/<\/?oli>/g, (t) => t === '<oli>' ? '<li>' : '</li>')}</ol>`);
+  // Ordered lists (1. 2. 3. etc.). The source number is carried through so a
+  // run interrupted by a paragraph or code block continues counting instead of
+  // restarting each new <ol> at 1.
+  s = s.replace(/^(\d+)\. (.*)$/gm, (_m, num, text) => `<oli n="${num}">${text}</oli>`);
+  s = s.replace(/(?:^|\n)(<oli\b[\s\S]*?)(?=\n(?!<oli\b)|$)/g, m => {
+    const start = (m.match(/<oli n="(\d+)"/) || [, '1'])[1];
+    const items = m.trim().replace(/<oli\b[^>]*>/g, '<li>').replace(/<\/oli>/g, '</li>');
+    return `<ol${start === '1' ? '' : ` start="${start}"`}>${items}</ol>`;
+  });
 
   // GitHub-style task lists (- [ ] / - [x]) → checkbox items. Must run before
   // the generic unordered-list rule so the "- " prefix isn't consumed first.
@@ -863,7 +869,7 @@ export function mdToHtml(src, opts) {
     `<blockquote>${m.trim().replace(/<\/?bq>/g, (t) => t === '<bq>' ? '<p>' : '</p>')}</blockquote>`);
 
   // Paragraphs - but NOT for code block placeholders or allowed HTML
-  s = s.replace(/^(?!<h\d|<ul>|<ol>|<li|<oli>|<\/li>|<pre>|<blockquote>|<bq>|<hr>|___CODE_BLOCK_|___ALLOWED_HTML_|___MATH_BLOCK_|___MERMAID_BLOCK_)([^\n]+)$/gm, '<p>$1</p>');
+  s = s.replace(/^(?!<h\d|<ul>|<ol\b|<li|<oli\b|<\/li>|<pre>|<blockquote>|<bq>|<hr>|___CODE_BLOCK_|___ALLOWED_HTML_|___MATH_BLOCK_|___MERMAID_BLOCK_)([^\n]+)$/gm, '<p>$1</p>');
 
   // Line breaks within paragraphs
   s = s.replace(/<p>([\s\S]*?)<\/p>/g, (match, content) => {
