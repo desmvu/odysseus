@@ -22,21 +22,24 @@ def test_document_ai_tidy_resolves_with_owner_scope():
 def test_calendar_quick_parse_resolves_with_owner_scope():
     body = _function_source("routes/calendar_routes.py", "quick_parse")
     assert "owner = _require_user(request)" in body
-    assert 'resolve_endpoint("utility", owner=owner or None)' in body
+    assert 'getattr(session, "owner", None) == owner' in body
+    assert '"utility", fallback_url, fallback_model, fallback_headers, owner=owner or None' in body
     assert 'resolve_endpoint("default", owner=owner or None)' in body
 
 
 def test_task_parse_resolves_with_owner_scope():
     body = _function_source("routes/task/task_routes.py", "parse_task")
     assert "user = _owner(request)" in body
-    assert 'resolve_endpoint("utility", owner=user or None)' in body
+    assert 'getattr(session, "owner", None) == user' in body
+    assert '"utility", fallback_url, fallback_model, fallback_headers, owner=user or None' in body
     assert 'resolve_endpoint("default", owner=user or None)' in body
 
 
 def test_history_compact_resolves_with_owner_scope():
     body = _function_source("routes/history/history_routes.py", "compact_session")
     assert "owner = effective_user(request)" in body
-    assert 'resolve_endpoint("utility", owner=owner or None)' in body
+    assert '"utility", session.endpoint_url, session.model, session.headers' in body
+    assert "owner=owner or None" in body
 
 
 def test_note_reminder_synthesis_resolves_with_owner_scope():

@@ -108,9 +108,11 @@ def _compact_prompt_for(monkeypatch, history):
     import src.model_context as model_context
 
     monkeypatch.setattr(agent_runs, "is_active", lambda session_id: False)
-    def fake_resolve_endpoint(kind, owner=None):
-        captured.setdefault("resolve_calls", []).append((kind, owner))
-        return None, None, {}
+    def fake_resolve_endpoint(kind, *args, owner=None):
+        # The real resolver returns the caller's fallback route when no utility
+        # model is configured, which is what "Same as chat" means.
+        captured.setdefault("resolve_calls", []).append((kind, args, owner))
+        return args if args else (None, None, {})
 
     monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", fake_resolve_endpoint)
     monkeypatch.setattr(llm_core, "llm_call_async", fake_llm_call_async)
@@ -151,9 +153,11 @@ def _registered_compact_response(monkeypatch, history, active_run=False):
     import src.llm_core as llm_core
 
     monkeypatch.setattr(agent_runs, "is_active", lambda session_id: active_run)
-    def fake_resolve_endpoint(kind, owner=None):
-        captured.setdefault("resolve_calls", []).append((kind, owner))
-        return None, None, {}
+    def fake_resolve_endpoint(kind, *args, owner=None):
+        # The real resolver returns the caller's fallback route when no utility
+        # model is configured, which is what "Same as chat" means.
+        captured.setdefault("resolve_calls", []).append((kind, args, owner))
+        return args if args else (None, None, {})
 
     monkeypatch.setattr(endpoint_resolver, "resolve_endpoint", fake_resolve_endpoint)
     monkeypatch.setattr(llm_core, "llm_call_async", fake_llm_call_async)
@@ -236,7 +240,9 @@ def test_registered_manual_compact_route_uses_session_owner(monkeypatch):
 
     assert response.status_code == 200
     assert manager.replaced_messages is not None
-    assert ("utility", "session-owner") in captured["resolve_calls"]
+    assert (
+        "utility", ("http://example.test/v1", "test-model", {}), "session-owner"
+    ) in captured["resolve_calls"]
 
 
 def test_registered_manual_compact_route_rejects_active_agent_run(monkeypatch):

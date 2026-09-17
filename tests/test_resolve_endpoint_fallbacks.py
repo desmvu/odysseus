@@ -99,6 +99,20 @@ def test_utility_uses_default_when_utility_endpoint_unset(monkeypatch):
     assert headers == {"Authorization": "Bearer key-default"}
 
 
+def test_utility_uses_recent_chat_when_no_default_is_saved(monkeypatch):
+    settings = {
+        "utility_endpoint_id": "",
+        "utility_model": "",
+        "default_endpoint_id": "",
+        "default_model": "",
+    }
+    recent = ("https://chat.example/chat", "chat-model", {"X-Chat": "session"})
+    _install_resolver_fakes(monkeypatch, settings, [])
+    monkeypatch.setattr(endpoint_resolver, "resolve_recent_chat_endpoint", lambda owner: recent)
+
+    assert resolve_endpoint("utility", owner="alice") == recent
+
+
 def test_task_uses_utility_when_task_endpoint_unset(monkeypatch):
     settings = {
         "task_endpoint_id": "",
@@ -153,6 +167,24 @@ def test_returns_explicit_fallback_when_no_endpoint_id_configured(monkeypatch):
 
     assert resolve_endpoint(
         "task",
+        fallback_url=fallback[0],
+        fallback_model=fallback[1],
+        fallback_headers=fallback[2],
+    ) == fallback
+
+
+def test_utility_session_fallback_wins_before_default_when_utility_unset(monkeypatch):
+    settings = {
+        "utility_endpoint_id": "",
+        "utility_model": "",
+        "default_endpoint_id": "default",
+        "default_model": "default-chat",
+    }
+    fallback = ("https://session.example/chat", "session-chat", {"X-Test": "session"})
+    _install_resolver_fakes(monkeypatch, settings, [_endpoint("default", "default-chat")])
+
+    assert resolve_endpoint(
+        "utility",
         fallback_url=fallback[0],
         fallback_model=fallback[1],
         fallback_headers=fallback[2],

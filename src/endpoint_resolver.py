@@ -12,7 +12,7 @@ import subprocess
 from typing import Optional, Tuple, Dict
 from urllib.parse import urlparse, urlunparse
 
-from core.database import SessionLocal, ModelEndpoint
+from core.database import SessionLocal, ModelEndpoint, Session as ChatSession
 from src.llm_core import _detect_provider, _host_match, _is_kimi_code_url, KIMI_CODE_USER_AGENT, _ollama_api_root
 
 logger = logging.getLogger(__name__)
@@ -340,6 +340,40 @@ def build_headers(api_key: Optional[str], base: str) -> Dict[str, str]:
     return headers
 
 
+def resolve_recent_chat_endpoint(owner: Optional[str] = None) -> Tuple[Optional[str], Optional[str], Optional[Dict]]:
+    """Return the most recently active usable chat route for an owner.
+
+    This is the durable fallback for a Utility Model configured as “Same as
+    chat” when no Default Chat Model is saved. Tool windows can open before
+    the frontend has restored its selected session after a restart, but the
+    session row still records the concrete endpoint/model that chat used.
+    """
+    db = SessionLocal()
+    try:
+        query = db.query(ChatSession).filter(
+            ChatSession.endpoint_url.isnot(None),
+            ChatSession.endpoint_url != "",
+            ChatSession.model.isnot(None),
+            ChatSession.model != "",
+            ChatSession.archived == False,  # noqa: E712
+        )
+        if owner:
+            query = query.filter(ChatSession.owner == owner)
+        else:
+            query = query.filter(ChatSession.owner.is_(None))
+        session = query.order_by(
+            ChatSession.last_accessed.desc(), ChatSession.updated_at.desc()
+        ).first()
+        if not session:
+            return None, None, None
+        return session.endpoint_url, session.model, session.headers or {}
+    except Exception as e:
+        logger.debug("Could not resolve recent chat fallback: %s", e)
+        return None, None, None
+    finally:
+        db.close()
+
+
 def resolve_endpoint(
     setting_prefix: str,
     fallback_url: Optional[str] = None,
@@ -390,6 +424,13 @@ def resolve_endpoint(
         model = _stg("default_model")
 
     if not ep_id:
+        # No saved Default Chat Model is common for users who select models
+        # directly in the composer. “Same as chat” must still work after a
+        # restart or before that selection has hydrated in a tool window.
+        if setting_prefix == "utility":
+            recent_url, recent_model, recent_headers = resolve_recent_chat_endpoint(owner)
+            if recent_url and recent_model:
+                return recent_url, recent_model, recent_headers
         return fallback_url, fallback_model, fallback_headers
 
     db = SessionLocal()

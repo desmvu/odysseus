@@ -12,7 +12,7 @@ def test_registered_manual_compaction_uses_session_owner_for_utility_endpoint():
     session_src = _src("routes/session_routes.py")
 
     assert 'owner = getattr(session, "owner", None) or effective_user(request)' in session_src
-    assert 'resolve_endpoint("utility", owner=owner)' in session_src
+    assert '"utility", session.endpoint_url, session.model, session.headers, owner=owner' in session_src
 
 
 def test_task_name_generation_uses_owner_scoped_session_endpoint():
@@ -31,7 +31,7 @@ def test_auto_compaction_utility_endpoint_keeps_chat_owner():
 
     assert "owner=user" in helper_src
     assert "owner: Optional[str] = None" in compact_src
-    assert 'resolve_endpoint("utility", owner=owner)' in compact_src
+    assert '"utility", endpoint_url, model, headers, owner=owner' in compact_src
 
 
 def test_background_session_sort_uses_owner_task_endpoint():

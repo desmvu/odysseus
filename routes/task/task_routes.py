@@ -1111,7 +1111,7 @@ def setup_task_routes(task_scheduler) -> APIRouter:
         sys = (
             "You convert a user's description of a recurring or one-off task into "
             "STRICT JSON for a task scheduler. The current local date/time is "
-            f"{ctx}. Output ONLY a JSON object, no prose, no markdown fences.\n\n"
+            f"{ctx}. Output ONLY a JSON object, no prose, no markdown fences, and no reasoning/thinking text.\n\n"
             "Schema (omit fields you can't infer):\n"
             "{\n"
             '  "task_type": "llm" | "research",  // "research" if it asks to research/investigate/find out; else "llm"\n'
@@ -1129,8 +1129,27 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             "use cron '0 H * * 1-5'. Keep the prompt actionable and self-contained."
         )
         try:
-            url, model, headers = resolve_endpoint("utility", owner=user or None)
-            if not url:
+            # “Same as chat” needs the selected chat's concrete route: the
+            # task-draft panel is outside the chat and global defaults may be
+            # intentionally unset.
+            fallback_url = fallback_model = fallback_headers = None
+            session_id = str(body.get("session") or "").strip()
+            if session_id:
+                try:
+                    from core.models import get_session_manager_instance
+                    session_manager = get_session_manager_instance()
+                    session = session_manager.get_session(session_id) if session_manager else None
+                    if session and getattr(session, "owner", None) == user:
+                        fallback_url = session.endpoint_url
+                        fallback_model = session.model
+                        fallback_headers = session.headers
+                except (KeyError, AttributeError):
+                    pass
+
+            url, model, headers = resolve_endpoint(
+                "utility", fallback_url, fallback_model, fallback_headers, owner=user or None
+            )
+            if not (url and model):
                 url, model, headers = resolve_endpoint("default", owner=user or None)
             if not (url and model):
                 return {"success": False, "message": "No model endpoint configured"}
@@ -1138,9 +1157,13 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                 url=url, model=model,
                 messages=[{"role": "system", "content": sys},
                           {"role": "user", "content": desc[:1000]}],
-                temperature=0.2, max_tokens=400, headers=headers, timeout=45,
+                # Reasoning-capable local models can consume the former 400
+                # token limit inside <think> before emitting the JSON draft.
+                temperature=0.2, max_tokens=1024, headers=headers, timeout=45,
             )
             text = _strip_think(raw or "", prose=False, prompt_echo=False).strip()
+            if not text:
+                raise ValueError("Model returned no task draft; try again once it has finished loading")
             if text.startswith("```"):
                 text = text.strip("`")
                 if text.lower().startswith("json"):
@@ -1171,6 +1194,11 @@ def setup_task_routes(task_scheduler) -> APIRouter:
             if draft.get("output_target") in ("session", "email", "notification"):
                 out["output_target"] = draft["output_target"]
             out["trigger_type"] = "schedule"
+            # Scheduled tasks cannot refer back to the browser's currently
+            # selected chat later. Preserve the resolved route in this
+            # AI-generated draft so “Same as chat” also works after Create.
+            out["endpoint_url"] = url
+            out["model"] = model
             if not out.get("prompt"):
                 return {"success": False, "message": "Could not extract a task instruction"}
             return {"success": True, "draft": out}

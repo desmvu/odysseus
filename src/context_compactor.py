@@ -375,11 +375,12 @@ async def maybe_compact(
         if "[Conversation summary" in m.get("content", "")
     )
 
-    # Use utility model if configured, otherwise fall back to session model
-    util_url, util_model, util_headers = resolve_endpoint("utility", owner=owner)
-    compact_url = util_url or endpoint_url
-    compact_model = util_model or model
-    compact_headers = util_headers if util_url else headers
+    # An unset Utility Model means “Same as chat”, i.e. this session's
+    # concrete endpoint/model — not the global Default Chat Model.
+    # A configured utility route still takes precedence.
+    compact_url, compact_model, compact_headers = resolve_endpoint(
+        "utility", endpoint_url, model, headers, owner=owner
+    )
 
     prompt = SELF_SUMMARY_SYSTEM_PROMPT.replace(
         "{count}", str(len(older))

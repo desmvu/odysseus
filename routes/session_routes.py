@@ -1028,9 +1028,9 @@ def setup_session_routes(
         from src.llm_core import llm_call_async
 
         owner = getattr(session, "owner", None) or effective_user(request)
-        url, model, headers = resolve_endpoint("utility", owner=owner)
-        if not url or not model:
-            url, model, headers = session.endpoint_url, session.model, session.headers
+        url, model, headers = resolve_endpoint(
+            "utility", session.endpoint_url, session.model, session.headers, owner=owner
+        )
         if not url or not model:
             raise HTTPException(400, "No model configured for compaction")
 

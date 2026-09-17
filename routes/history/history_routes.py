@@ -748,11 +748,12 @@ def setup_history_routes(session_manager, upload_handler=None) -> APIRouter:
                 for m in older
             )
 
-            # Use utility model if available
-            util_url, util_model, util_headers = resolve_endpoint("utility", owner=owner or None)
-            compact_url = util_url or session.endpoint_url
-            compact_model = util_model or session.model
-            compact_headers = util_headers if util_url else session.headers
+            # An unset Utility Model means this session's active chat model.
+            # A configured utility route still takes precedence.
+            compact_url, compact_model, compact_headers = resolve_endpoint(
+                "utility", session.endpoint_url, session.model, session.headers,
+                owner=owner or None,
+            )
 
             from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT, normalize_compaction_summary
             compaction_count = sum(1 for m in session.history if isinstance(m, ChatMessage) and "[Conversation summary" in (m.content or ""))
