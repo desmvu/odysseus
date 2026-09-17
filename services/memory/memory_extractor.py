@@ -557,9 +557,11 @@ async def audit_memories(
             # the JSON so it never parsed ("bad_json").
             max_tokens=16384,
             headers=headers,
-            # Bound the call so the Tidy whirlpool can't spin indefinitely on a
-            # slow/large generation.
-            timeout=120,
+            # A full audit returns a rewritten JSON list for every memory. Local
+            # reasoning models can take longer than the normal request budget to
+            # produce that large response, so allow five minutes while still
+            # keeping the Tidy UI bounded.
+            timeout=300,
         )
 
         # Parse the JSON list, tolerating reasoning-model noise: <think> blocks,
