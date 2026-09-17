@@ -157,21 +157,22 @@ function togglePicker(anchor, target) {
   document.body.appendChild(_pickerEl);
 
   const rect = anchor.getBoundingClientRect();
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
   _pickerEl.style.position = 'fixed';
-  _pickerEl.style.top = (rect.bottom + 4) + 'px';
-  _pickerEl.style.left = rect.left + 'px';
+  _pickerEl.style.top = ((rect.bottom + 4) / zr) + 'px';
+  _pickerEl.style.left = (rect.left / zr) + 'px';
   _pickerEl.style.zIndex = String(topPortalZ());
 
   requestAnimationFrame(() => {
     const pr = _pickerEl.getBoundingClientRect();
     if (pr.right > window.innerWidth - 8) {
-      _pickerEl.style.left = Math.max(8, window.innerWidth - pr.width - 8) + 'px';
+      _pickerEl.style.left = (Math.max(8, window.innerWidth - pr.width - 8) / zr) + 'px';
     }
     // Always open downward. If it would run past the bottom, cap its height so
     // it scrolls internally instead of flipping up (which got cut off at top).
     const avail = window.innerHeight - rect.bottom - 12;
     if (pr.height > avail) {
-      _pickerEl.style.maxHeight = Math.max(160, avail) + 'px';
+      _pickerEl.style.maxHeight = (Math.max(160, avail) / zr) + 'px';
     }
   });
 

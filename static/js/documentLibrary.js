@@ -13,6 +13,17 @@ import { makeWindowDraggable } from './windowDrag.js';
 import { langIcon } from './langIcons.js';
 import { registerMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight/
+// scrollHeight and any `.style.*` assignment (pre-zoom/layout pixels).
+// Divide a post-zoom value by this ratio right before writing it into
+// style.left/top/right/bottom/width/height/maxWidth/maxHeight.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 // ── Injected references from documentModule ──
 let API_BASE = '';
 let _esc;          // HTML-escape function
@@ -227,14 +238,15 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
     dd.appendChild(cancel);
     document.body.appendChild(dd);
     const rect = anchor.getBoundingClientRect();
-    dd.style.right = (window.innerWidth - rect.right) + 'px';
-    dd.style.top = (rect.bottom + 2) + 'px';
+    const _zr1 = _zoomRatio();
+    dd.style.right = ((window.innerWidth - rect.right) / _zr1) + 'px';
+    dd.style.top = ((rect.bottom + 2) / _zr1) + 'px';
     dd.style.display = 'block';
     dd.style.zIndex = String(topPortalZ());
     requestAnimationFrame(() => {
       const mr = dd.getBoundingClientRect();
       if (mr.bottom > window.innerHeight - 8) {
-        dd.style.top = (rect.top - mr.height - 2) + 'px';
+        dd.style.top = ((rect.top - mr.height - 2) / _zr1) + 'px';
       }
       if (mr.left < 8) { dd.style.left = '8px'; dd.style.right = 'auto'; }
     });
@@ -630,16 +642,17 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
         } else {
           // Position fixed on body to escape overflow clipping
           const rect = menuBtn.getBoundingClientRect();
+          const _zr2 = _zoomRatio();
           document.body.appendChild(dropdown);
           dropdown.dataset.owner = doc.id;
           dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:0;width:max-content;padding:4px;background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);backdrop-filter:blur(12px);font-size:12px;display:block;`;
-          dropdown.style.top = (rect.bottom + 4) + 'px';
+          dropdown.style.top = ((rect.bottom + 4) / _zr2) + 'px';
           dropdown.style.left = 'auto';
-          dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+          dropdown.style.right = ((window.innerWidth - rect.right) / _zr2) + 'px';
           // Clamp to viewport
           requestAnimationFrame(() => {
             const mr = dropdown.getBoundingClientRect();
-            if (mr.bottom > window.innerHeight - 8) dropdown.style.top = (rect.top - mr.height - 4) + 'px';
+            if (mr.bottom > window.innerHeight - 8) dropdown.style.top = ((rect.top - mr.height - 4) / _zr2) + 'px';
             if (mr.left < 8) { dropdown.style.left = '8px'; dropdown.style.right = 'auto'; }
           });
           // Close on outside click or Escape (the latter via the registry).
@@ -1750,8 +1763,9 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
             // Clamp to viewport in case window was resized
             requestAnimationFrame(() => {
               const r = content.getBoundingClientRect();
-              if (r.right > window.innerWidth) content.style.left = Math.max(0, window.innerWidth - r.width - 8) + 'px';
-              if (r.bottom > window.innerHeight) content.style.top = Math.max(0, window.innerHeight - r.height - 8) + 'px';
+              const _zr0 = _zoomRatio();
+              if (r.right > window.innerWidth) content.style.left = (Math.max(0, window.innerWidth - r.width - 8) / _zr0) + 'px';
+              if (r.bottom > window.innerHeight) content.style.top = (Math.max(0, window.innerHeight - r.height - 8) / _zr0) + 'px';
               if (r.left < 0) content.style.left = '8px';
               if (r.top < 0) content.style.top = '8px';
             });
@@ -1790,8 +1804,9 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
           content.style.bottom = '';
           const r0 = content.getBoundingClientRect();
           const w = r0.width || Math.min(900, window.innerWidth * 0.92);
-          content.style.left = Math.max(8, cx - w / 2) + 'px';
-          content.style.top = Math.max(8, cy - 20) + 'px';
+          const _zr3 = _zoomRatio();
+          content.style.left = (Math.max(8, cx - w / 2) / _zr3) + 'px';
+          content.style.top = (Math.max(8, cy - 20) / _zr3) + 'px';
         };
         makeWindowDraggable(modal, {
           content,
@@ -2047,7 +2062,7 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
           e.stopPropagation();
           if (!await window.styledConfirm('Delete this chat?', { confirmText: 'Delete', danger: true })) return;
           await fetch(API_BASE + '/api/session/' + session.id, { method: 'DELETE' });
-          card.style.maxHeight = `${Math.max(card.getBoundingClientRect().height, card.scrollHeight)}px`;
+          card.style.maxHeight = `${Math.max(card.getBoundingClientRect().height / _zoomRatio(), card.scrollHeight)}px`;
           card.classList.add('memory-tidy-removing');
           await new Promise(r => setTimeout(r, 520));
           if (isArchive) _renderLibArchive(); else _renderLibChats();
@@ -2123,7 +2138,7 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
           { label: 'Delete', action: async () => {
             if (!await window.styledConfirm('Delete this chat?', { confirmText: 'Delete', danger: true })) return;
             await fetch(API_BASE + '/api/session/' + s.id, { method: 'DELETE' });
-            card.style.maxHeight = `${Math.max(card.getBoundingClientRect().height, card.scrollHeight)}px`;
+            card.style.maxHeight = `${Math.max(card.getBoundingClientRect().height / _zoomRatio(), card.scrollHeight)}px`;
             card.classList.add('memory-tidy-removing');
             await new Promise(r => setTimeout(r, 520));
             _renderLibChats();

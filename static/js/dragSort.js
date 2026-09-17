@@ -8,6 +8,16 @@ import Storage from './storage.js';
 
 const instances = new Map();
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from any `.style.*` assignment
+// (pre-zoom/layout pixels). Divide a post-zoom value by this ratio right
+// before writing it into style.left/top/width.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 /**
  * Make a container's children sortable via vertical drag
  */
@@ -60,8 +70,13 @@ export function enable(containerId, itemSelector, options = {}) {
   function startDrag(clientY, item) {
     const rect = item.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
-    const relativeTop = rect.top - containerRect.top + container.scrollTop;
-    const relativeLeft = rect.left - containerRect.left;
+    // rect/containerRect deltas are post-zoom; container.scrollTop is
+    // pre-zoom (a scroll offset, like offsetTop) — convert the delta to
+    // pre-zoom before combining, so the result is ready for a direct
+    // style.top/left write.
+    const zr = _zoomRatio();
+    const relativeTop = (rect.top - containerRect.top) / zr + container.scrollTop;
+    const relativeLeft = (rect.left - containerRect.left) / zr;
 
     offsetY = clientY - rect.top;
     items = getItems();
@@ -77,7 +92,7 @@ export function enable(containerId, itemSelector, options = {}) {
     item.classList.add('dragging');
     Object.assign(item.style, {
       position: 'absolute',
-      width: rect.width + 'px',
+      width: (rect.width / zr) + 'px',
       left: relativeLeft + 'px',
       top: relativeTop + 'px',
       zIndex: '9999',
@@ -91,7 +106,9 @@ export function enable(containerId, itemSelector, options = {}) {
   function moveDrag(clientY) {
     if (!draggedEl) return;
     const containerRect = container.getBoundingClientRect();
-    const newTop = clientY - offsetY - containerRect.top + container.scrollTop;
+    // clientY/offsetY/containerRect.top are post-zoom; scrollTop is
+    // pre-zoom — same conversion as startDrag above.
+    const newTop = (clientY - offsetY - containerRect.top) / _zoomRatio() + container.scrollTop;
     draggedEl.style.top = newTop + 'px';
 
     const otherItems = items.filter(i => i !== draggedEl);
@@ -125,7 +142,7 @@ export function enable(containerId, itemSelector, options = {}) {
 
     const phRect = placeholder.getBoundingClientRect();
     const containerRect = container.getBoundingClientRect();
-    const snapTop = phRect.top - containerRect.top + container.scrollTop;
+    const snapTop = (phRect.top - containerRect.top) / _zoomRatio() + container.scrollTop;
     draggedEl.style.transition = 'top 0.08s ease-out';
     draggedEl.style.top = snapTop + 'px';
 

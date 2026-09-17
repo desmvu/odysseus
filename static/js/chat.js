@@ -156,14 +156,18 @@ import { loadPanel } from './panels.js';
   }
 
   function _positionContextHeaderPopup(popup, pill) {
+    // pill/popup rects (getBoundingClientRect) are post-zoom pixels; the
+    // "Larger" text-size setting's CSS `zoom` splits those from style.*
+    // (pre-zoom) — divide by the ratio right before each style write.
+    const zr = (() => { const w = document.documentElement.offsetWidth; return w ? window.innerWidth / w : 1; })();
     const rect = pill.getBoundingClientRect();
-    popup.style.top = `${Math.round(rect.bottom + 8)}px`;
-    popup.style.left = `${Math.round(rect.left + (rect.width / 2) - 119)}px`;
+    popup.style.top = `${Math.round((rect.bottom + 8) / zr)}px`;
+    popup.style.left = `${Math.round((rect.left + (rect.width / 2) - 119) / zr)}px`;
     document.body.appendChild(popup);
     const pRect = popup.getBoundingClientRect();
     if (pRect.left < 8) popup.style.left = '8px';
-    if (pRect.right > window.innerWidth - 8) popup.style.left = `${Math.max(8, window.innerWidth - pRect.width - 8)}px`;
-    if (pRect.bottom > window.innerHeight - 8) popup.style.top = `${Math.max(8, rect.top - pRect.height - 8)}px`;
+    if (pRect.right > window.innerWidth - 8) popup.style.left = `${Math.max(8, (window.innerWidth - pRect.width - 8) / zr)}px`;
+    if (pRect.bottom > window.innerHeight - 8) popup.style.top = `${Math.max(8, (rect.top - pRect.height - 8) / zr)}px`;
   }
 
   function _showContextHeaderPopup() {

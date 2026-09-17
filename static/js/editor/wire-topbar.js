@@ -97,8 +97,9 @@ export function wireTopbar(deps) {
       };
       const positionSaveMenu = () => {
         const r = saveBtn.getBoundingClientRect();
-        saveMenu.style.top = `${r.bottom + 2}px`;
-        saveMenu.style.right = `${Math.max(8, window.innerWidth - r.right)}px`;
+        const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+        saveMenu.style.top = `${(r.bottom + 2) / zr}px`;
+        saveMenu.style.right = `${Math.max(8, window.innerWidth - r.right) / zr}px`;
         saveMenu.style.left = 'auto';
       };
       saveBtn.addEventListener('click', (e) => {

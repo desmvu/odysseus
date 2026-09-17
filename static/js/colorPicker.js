@@ -299,8 +299,9 @@ function position(p, anchor) {
   if (top + pRect.height > window.innerHeight - 8) top = rect.top - pRect.height - 6;
   if (left < 8) left = 8;
   if (top < 8) top = 8;
-  p.style.left = left + 'px';
-  p.style.top = top + 'px';
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+  p.style.left = (left / zr) + 'px';
+  p.style.top = (top / zr) + 'px';
 }
 
 let _onEsc = null;

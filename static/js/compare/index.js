@@ -1072,9 +1072,10 @@ let _closeExportMenu = () => {};
 function _toggleExportMenu(btn) {
   if (_exportMenuEl) { _closeExportMenu(); return; }
   const r = btn.getBoundingClientRect();
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
   const m = document.createElement('div');
   m.className = 'compare-export-menu';
-  m.style.cssText = 'position:fixed;z-index:10001;top:' + (r.bottom + 4) + 'px;left:' + r.left + 'px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;display:flex;flex-direction:column;min-width:170px;';
+  m.style.cssText = 'position:fixed;z-index:10001;top:' + ((r.bottom + 4) / zr) + 'px;left:' + (r.left / zr) + 'px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;display:flex;flex-direction:column;min-width:170px;'
   const opts = [
     { label: 'Copy as Markdown', fn: () => _exportCopyMarkdown(btn) },
     { label: 'Download .md',     fn: () => _exportDownloadMarkdown() },

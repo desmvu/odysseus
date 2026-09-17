@@ -192,6 +192,32 @@ function _ensureDock() {
       const dock = document.getElementById('minimized-dock');
       if (dock) _applyDockPos(dock);
     }).observe(chatContainer, { attributes: true, attributeFilter: ['class'] });
+    // The composer width/center changes with a monitor resize and with the
+    // sidebar's responsive layout. Keep welcome chips anchored to its center.
+    const syncWelcomeDock = () => {
+      if (!chatContainer.classList.contains('welcome-active')) return;
+      const dock = document.getElementById('minimized-dock');
+      if (dock) _applyDockPos(dock);
+    };
+    window.addEventListener('resize', () => requestAnimationFrame(syncWelcomeDock));
+
+    // Sidebar open/close changes the workspace and composer center without a
+    // window resize or a welcome-state change. Follow the composer through
+    // that width transition, then settle once its final geometry is known.
+    const composer = chatContainer.querySelector('.chat-input-bar');
+    if (composer && typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => requestAnimationFrame(syncWelcomeDock)).observe(composer);
+    }
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) {
+      sidebar.addEventListener('transitionend', (event) => {
+        if (event.propertyName === 'width') syncWelcomeDock();
+      });
+      if (typeof MutationObserver !== 'undefined') {
+        new MutationObserver(() => requestAnimationFrame(syncWelcomeDock))
+          .observe(sidebar, { attributes: true, attributeFilter: ['class'] });
+      }
+    }
   }
 }
 
@@ -270,27 +296,26 @@ function _loadDockState() {
 // render because the empty-dock branch wipes inline styles via cssText='',
 // which would otherwise drop the position the moment the dock clears.
 function _applyDockPos(dock) {
-  if (!_dockPos) return;
-  // The welcome screen has its own fixed, app-controlled layout (title,
-  // subtitle, tip, incognito toggle, all centered around the composer) — a
-  // custom dock position the user dragged to while ACTIVELY CHATTING (e.g.
-  // out of the way of message bubbles) has no relationship to that layout
-  // and can land on top of the welcome branding. With only one chip ever
-  // in the dock, even a slightly-off-target click while trying to restore
-  // it counts as a whole-dock drag (see dragMode = 'move-dock' above) and
-  // permanently persists a position, so this is easy to hit by accident.
-  // Falling back to the CSS default (bottom: var(--composer-clearance)) on
-  // the welcome screen keeps that promise without discarding the position
-  // the user actually wanted for normal chat use.
+  // Welcome has a centered composer inside the workspace (not the whole
+  // viewport, because the sidebar/rail owns the left side). Anchor the dock
+  // to that composer even when no custom dock position has been saved. This
+  // keeps a lone chip and a multi-chip group centered over the input on every
+  // monitor shape rather than centering them behind the sidebar.
   const chatContainer = document.getElementById('chat-container');
   if (chatContainer && chatContainer.classList.contains('welcome-active')) {
-    dock.style.left = '';
-    dock.style.top = '';
-    dock.style.right = '';
-    dock.style.bottom = '';
-    dock.style.transform = '';
-    return;
+    const composer = chatContainer.querySelector('.chat-input-bar');
+    const rect = composer?.getBoundingClientRect();
+    if (rect && rect.width > 0) {
+      const zr = _zoomRatio();
+      dock.style.left = `${(rect.left + rect.width / 2) / zr}px`;
+      dock.style.top = '';
+      dock.style.right = 'auto';
+      dock.style.bottom = '';
+      dock.style.transform = 'translateX(-50%)';
+      return;
+    }
   }
+  if (!_dockPos) return;
   dock.style.left = `${_dockPos.left}px`;
   dock.style.top = `${_dockPos.top}px`;
   dock.style.right = 'auto';

@@ -20,6 +20,18 @@ const COPY_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 const CHECK_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 const PAPERCLIP_ICON = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 17.93 8.8l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (pre-zoom/layout pixels). Divide a post-zoom
+// value by this ratio right before writing it into style.left/top/width/
+// height (and multiply a pre-zoom offsetWidth/Height by it before mixing
+// with a post-zoom rect value in the same expression).
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 /** Sanitize a URL for use in href — only allow http(s) and protocol-relative. */
 function _safeHref(url) {
   if (!url) return '#';
@@ -798,12 +810,13 @@ export function applyModelColor(roleEl, modelName) {
       }
       popup.innerHTML = html;
       const rect = roleEl.getBoundingClientRect();
-      popup.style.top = (rect.bottom + 4) + 'px';
-      popup.style.left = rect.left + 'px';
+      const _zr = _zoomRatio();
+      popup.style.top = (rect.bottom + 4) / _zr + 'px';
+      popup.style.left = rect.left / _zr + 'px';
       document.body.appendChild(popup);
       const pr = popup.getBoundingClientRect();
-      if (pr.bottom > window.innerHeight - 8) popup.style.top = (rect.top - pr.height - 4) + 'px';
-      if (pr.right > window.innerWidth - 8) popup.style.left = (window.innerWidth - pr.width - 8) + 'px';
+      if (pr.bottom > window.innerHeight - 8) popup.style.top = (rect.top - pr.height - 4) / _zr + 'px';
+      if (pr.right > window.innerWidth - 8) popup.style.left = (window.innerWidth - pr.width - 8) / _zr + 'px';
       bindMenuDismiss(popup, () => popup.remove());
     });
   }
@@ -1827,13 +1840,14 @@ export function createMsgFooter(msgElement) {
       document.body.appendChild(menu);
       // Position fixed relative to the ··· button
       const btnRect = moreBtn.getBoundingClientRect();
-      menu.style.top = (btnRect.top - menu.offsetHeight - 4) + 'px';
-      menu.style.left = btnRect.left + 'px';
+      const _zr = _zoomRatio();
+      menu.style.top = (btnRect.top - menu.offsetHeight * _zr - 4) / _zr + 'px';
+      menu.style.left = btnRect.left / _zr + 'px';
       // Flip down if above viewport
-      if (parseFloat(menu.style.top) < 8) menu.style.top = (btnRect.bottom + 4) + 'px';
+      if (parseFloat(menu.style.top) < 8) menu.style.top = (btnRect.bottom + 4) / _zr + 'px';
       // Keep within right edge
       const mr = menu.getBoundingClientRect();
-      if (mr.right > window.innerWidth - 8) menu.style.left = (window.innerWidth - mr.width - 8) + 'px';
+      if (mr.right > window.innerWidth - 8) menu.style.left = (window.innerWidth - mr.width - 8) / _zr + 'px';
       // Close on outside click or Escape. The trigger button is treated as
       // "inside" so its own click toggles rather than double-fires.
       closeMenu = bindMenuDismiss(menu, () => menu.remove(), (ev) => !menu.contains(ev.target) && ev.target !== moreBtn);    });
@@ -1890,16 +1904,17 @@ export function createMsgFooter(msgElement) {
       document.body.appendChild(detail);
       const pillRect = pill.getBoundingClientRect();
       const detailRect = detail.getBoundingClientRect();
+      const _zr = _zoomRatio();
       const spaceAbove = pillRect.top;
       const spaceBelow = window.innerHeight - pillRect.bottom;
       if (spaceAbove >= detailRect.height + 8 || spaceAbove > spaceBelow) {
-        detail.style.top = (pillRect.top - detailRect.height - 8) + 'px';
+        detail.style.top = (pillRect.top - detailRect.height - 8) / _zr + 'px';
       } else {
-        detail.style.top = (pillRect.bottom + 8) + 'px';
+        detail.style.top = (pillRect.bottom + 8) / _zr + 'px';
       }
-      detail.style.left = pillRect.left + 'px';
+      detail.style.left = pillRect.left / _zr + 'px';
       if (pillRect.left + detailRect.width > window.innerWidth - 8) {
-        detail.style.left = (window.innerWidth - detailRect.width - 8) + 'px';
+        detail.style.left = (window.innerWidth - detailRect.width - 8) / _zr + 'px';
       }
       if (parseFloat(detail.style.left) < 8) detail.style.left = '8px';
       detail.style.visibility = '';
@@ -2015,11 +2030,12 @@ export function createUserMsgFooter(msgElement) {
       menu._trigger = moreBtn;
       document.body.appendChild(menu);
       const btnRect = moreBtn.getBoundingClientRect();
-      menu.style.top = (btnRect.top - menu.offsetHeight - 4) + 'px';
-      menu.style.left = btnRect.left + 'px';
-      if (parseFloat(menu.style.top) < 8) menu.style.top = (btnRect.bottom + 4) + 'px';
+      const _zr = _zoomRatio();
+      menu.style.top = (btnRect.top - menu.offsetHeight * _zr - 4) / _zr + 'px';
+      menu.style.left = btnRect.left / _zr + 'px';
+      if (parseFloat(menu.style.top) < 8) menu.style.top = (btnRect.bottom + 4) / _zr + 'px';
       const mr = menu.getBoundingClientRect();
-      if (mr.right > window.innerWidth - 8) menu.style.left = (window.innerWidth - mr.width - 8) + 'px';
+      if (mr.right > window.innerWidth - 8) menu.style.left = (window.innerWidth - mr.width - 8) / _zr + 'px';
       closeMenu = bindMenuDismiss(menu, () => menu.remove(), (ev) => !menu.contains(ev.target) && ev.target !== moreBtn);    });
     actions.appendChild(moreBtn);
   }
@@ -2127,18 +2143,19 @@ export function displayMetrics(messageElement, metrics) {
     `;
 
     const rect = metricsContainer.getBoundingClientRect();
-    popup.style.left = rect.left + 'px';
+    const _zr = _zoomRatio();
+    popup.style.left = rect.left / _zr + 'px';
     popup.style.visibility = 'hidden';
     document.body.appendChild(popup);
     const pr = popup.getBoundingClientRect();
     const spaceAbove = rect.top;
     const spaceBelow = window.innerHeight - rect.bottom;
     if (spaceAbove >= pr.height + 8 || spaceAbove > spaceBelow) {
-      popup.style.top = (rect.top - pr.height - 8) + 'px';
+      popup.style.top = (rect.top - pr.height - 8) / _zr + 'px';
     } else {
-      popup.style.top = (rect.bottom + 8) + 'px';
+      popup.style.top = (rect.bottom + 8) / _zr + 'px';
     }
-    if (pr.right > window.innerWidth - 8) popup.style.left = (window.innerWidth - pr.width - 8) + 'px';
+    if (pr.right > window.innerWidth - 8) popup.style.left = (window.innerWidth - pr.width - 8) / _zr + 'px';
     if (parseFloat(popup.style.left) < 8) popup.style.left = '8px';
     popup.style.visibility = '';
 
@@ -2270,16 +2287,17 @@ export function displayMetrics(messageElement, metrics) {
       }
 
       const rect = ctxRing.getBoundingClientRect();
+      const _zr = _zoomRatio();
       popup.style.visibility = 'hidden';
       document.body.appendChild(popup);
       const pr = popup.getBoundingClientRect();
       // Position above the ring, right-aligned
-      popup.style.left = Math.max(8, rect.right - pr.width) + 'px';
+      popup.style.left = Math.max(8, rect.right - pr.width) / _zr + 'px';
       const spaceAbove = rect.top;
       if (spaceAbove >= pr.height + 8) {
-        popup.style.top = (rect.top - pr.height - 8) + 'px';
+        popup.style.top = (rect.top - pr.height - 8) / _zr + 'px';
       } else {
-        popup.style.top = (rect.bottom + 8) + 'px';
+        popup.style.top = (rect.bottom + 8) / _zr + 'px';
       }
       popup.style.visibility = '';
 

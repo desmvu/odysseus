@@ -28,6 +28,17 @@ import { collapseSidebarToRail } from './modalSnap.js';
 import { emailApiUrl } from './emailShared.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (pre-zoom/layout pixels). Divide a post-zoom
+// value by this ratio right before writing it into a style property, or
+// multiply a pre-zoom value by it before comparing against a post-zoom one.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 const API_BASE = window.location.origin;
 let _emailUnreadChipClickWired = false;
 let _libLoadSeq = 0;
@@ -732,16 +743,21 @@ function _showRecipientChipPopover(chip) {
   `;
   document.body.appendChild(pop);
 
+  // pop.offsetWidth/offsetHeight are pre-zoom; rect/window.innerWidth/Height
+  // are post-zoom — convert to post-zoom for this clamp math, then convert
+  // the final left/top back to pre-zoom for the style write.
+  const _zr = _zoomRatio();
   const rect = chip.getBoundingClientRect();
   const margin = 10;
-  const maxLeft = Math.max(margin, window.innerWidth - pop.offsetWidth - margin);
+  const popW = pop.offsetWidth * _zr, popH = pop.offsetHeight * _zr;
+  const maxLeft = Math.max(margin, window.innerWidth - popW - margin);
   let left = Math.min(Math.max(margin, rect.left), maxLeft);
   let top = rect.bottom + 6;
-  if (top + pop.offsetHeight + margin > window.innerHeight) {
-    top = Math.max(margin, rect.top - pop.offsetHeight - 6);
+  if (top + popH + margin > window.innerHeight) {
+    top = Math.max(margin, rect.top - popH - 6);
   }
-  pop.style.left = `${Math.round(left)}px`;
-  pop.style.top = `${Math.round(top)}px`;
+  pop.style.left = `${Math.round(left / _zr)}px`;
+  pop.style.top = `${Math.round(top / _zr)}px`;
 
   const ctl = new AbortController();
   _recipientChipPopoverCtl = ctl;
@@ -1038,21 +1054,25 @@ function _measureEmailDocumentSplit(modal) {
   const content = modal?.querySelector?.('.modal-content');
   const rect = content?.getBoundingClientRect?.();
   if (!rect || !rect.width) return;
+  // rect (getBoundingClientRect) is post-zoom; every style/custom-property
+  // write below is pre-zoom — convert once here.
+  const _zr = _zoomRatio();
+  const rectRight = rect.right / _zr, rectWidth = rect.width / _zr;
   const splitGap = 0;
-  document.documentElement.style.setProperty('--email-doc-split-right-x', `${Math.ceil(rect.right + splitGap)}px`);
+  document.documentElement.style.setProperty('--email-doc-split-right-x', `${Math.ceil(rectRight + splitGap)}px`);
   try {
     modal.style.setProperty('z-index', '150', 'important');
     if (content) {
       content.style.setProperty('position', 'absolute', 'important');
       content.style.setProperty('left', '0px', 'important');
       content.style.setProperty('right', 'auto', 'important');
-      content.style.setProperty('width', `${Math.ceil(rect.width)}px`, 'important');
-      content.style.setProperty('max-width', `${Math.ceil(rect.width)}px`, 'important');
+      content.style.setProperty('width', `${Math.ceil(rectWidth)}px`, 'important');
+      content.style.setProperty('max-width', `${Math.ceil(rectWidth)}px`, 'important');
     }
     const docPane = document.getElementById('doc-editor-pane');
     if (docPane) {
       docPane.style.setProperty('position', 'fixed', 'important');
-      docPane.style.setProperty('left', `${Math.ceil(rect.right + splitGap)}px`, 'important');
+      docPane.style.setProperty('left', `${Math.ceil(rectRight + splitGap)}px`, 'important');
       docPane.style.setProperty('right', '0px', 'important');
       docPane.style.setProperty('top', '0px', 'important');
       docPane.style.setProperty('bottom', '0px', 'important');
@@ -7630,26 +7650,27 @@ function _fitEmailDropdown(dropdown, rect) {
     // whether it was anchored via left or right. Needed now that some
     // triggers (e.g. the right-aligned bulk "Actions" button) sit close to
     // the right edge, where a left-anchored menu would spill off-screen.
-    const dw = dropdown.offsetWidth;
+    const zr = _zoomRatio();
+    const dw = dropdown.offsetWidth * zr;
     const curLeft = dropdown.getBoundingClientRect().left;
     if (curLeft + dw > window.innerWidth - margin) {
-      dropdown.style.left = Math.max(margin, window.innerWidth - margin - dw) + 'px';
+      dropdown.style.left = (Math.max(margin, window.innerWidth - margin - dw) / zr) + 'px';
       dropdown.style.right = 'auto';
     } else if (curLeft < margin) {
-      dropdown.style.left = margin + 'px';
+      dropdown.style.left = (margin / zr) + 'px';
       dropdown.style.right = 'auto';
     }
     // Vertical fit — flip up or cap+scroll if it doesn't fit below.
-    const dh = dropdown.offsetHeight;
+    const dh = dropdown.offsetHeight * zr;
     const below = window.innerHeight - rect.bottom - margin;
     const above = rect.top - margin;
     if (dh <= below) return;                 // fits below as-is
     if (above > below) {                     // flip upward
       dropdown.style.top = 'auto';
-      dropdown.style.bottom = (window.innerHeight - rect.top + 4) + 'px';
-      if (dh > above) { dropdown.style.maxHeight = above + 'px'; dropdown.style.overflowY = 'auto'; }
+      dropdown.style.bottom = ((window.innerHeight - rect.top + 4) / zr) + 'px';
+      if (dh > above) { dropdown.style.maxHeight = (above / zr) + 'px'; dropdown.style.overflowY = 'auto'; }
     } else {                                 // keep below, cap + scroll
-      dropdown.style.maxHeight = below + 'px';
+      dropdown.style.maxHeight = (below / zr) + 'px';
       dropdown.style.overflowY = 'auto';
     }
   });
@@ -7671,7 +7692,8 @@ function _showReaderMoreMenu(em, card, reader, anchor) {
   dropdown._anchor = anchor;
   anchor.classList.add('reader-more-active');
   const rect = anchor.getBoundingClientRect();
-  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:180px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${rect.bottom + 4}px;right:${window.innerWidth - rect.right}px;`;
+  const zr = _zoomRatio();
+  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:180px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${(rect.bottom + 4) / zr}px;right:${(window.innerWidth - rect.right) / zr}px;`;
 
   const _icon = (svg) => `<span class="dropdown-icon">${svg}</span>`;
   const _unreadIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>';

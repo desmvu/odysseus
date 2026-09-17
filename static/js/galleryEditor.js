@@ -109,6 +109,19 @@ import { wireTopbarOverflow } from './editor/wire-topbar-overflow.js';
 import { wireTopbarMenus } from './editor/wire-topbar-menus.js';
 
 const API_BASE = window.location.origin;
+
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (pre-zoom/layout pixels). Divide a post-zoom
+// value by this ratio right before writing it into style.left/top/width/
+// height/right/bottom — used by the floating panels/popovers below (NOT the
+// canvas pointer-coordinate math elsewhere in this file, which stays in one
+// consistent post-zoom space on its own and needs no conversion).
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
 // ── State ──
 // Transform-overlay canvas — sits over the main canvas with extra margin
 // so resize / rotation handles render OUTSIDE the image edges. Pointer
@@ -1607,9 +1620,10 @@ function _showCropApply() {
   const scaleY = canvasRect.height / state.mainCanvas.height;
   const localX = (canvasRect.left - areaRect.left) + (state.cropRect.x + state.cropRect.w) * scaleX;
   const localY = (canvasRect.top - areaRect.top) + (state.cropRect.y + state.cropRect.h) * scaleY;
+  const _zr = _zoomRatio();
   pop.style.position = 'absolute';
-  pop.style.left = (localX + 6) + 'px';
-  pop.style.top = (localY + 6) + 'px';
+  pop.style.left = (localX + 6) / _zr + 'px';
+  pop.style.top = (localY + 6) / _zr + 'px';
   // Clamp inside the CANVAS image bounds (not just the canvas-area) so
   // the panel doesn't sit on the dark padding around the canvas — it
   // stays anchored over the actual image.
@@ -1619,14 +1633,17 @@ function _showCropApply() {
     const canvasTop = canvasRect.top - areaRect.top;
     const canvasRight = canvasLeft + canvasRect.width;
     const canvasBottom = canvasTop + canvasRect.height;
-    let nx = parseFloat(pop.style.left) || 0;
-    let ny = parseFloat(pop.style.top) || 0;
+    // pop.style.left/top were written pre-zoom above; bRect/canvasRect are
+    // post-zoom — bring nx/ny into post-zoom for this clamp, then back to
+    // pre-zoom at the final write.
+    let nx = (parseFloat(pop.style.left) || 0) * _zr;
+    let ny = (parseFloat(pop.style.top) || 0) * _zr;
     if (nx + bRect.width > canvasRight - 4) nx = canvasRight - bRect.width - 4;
     if (ny + bRect.height > canvasBottom - 4) ny = canvasBottom - bRect.height - 4;
     nx = Math.max(canvasLeft + 4, nx);
     ny = Math.max(canvasTop + 4, ny);
-    pop.style.left = nx + 'px';
-    pop.style.top = ny + 'px';
+    pop.style.left = nx / _zr + 'px';
+    pop.style.top = ny / _zr + 'px';
   });
 }
 
@@ -2142,8 +2159,9 @@ function _showLayerThumb(rowEl, layer) {
   state.layerThumbEl.appendChild(c);
   // Position to the LEFT of the row so it doesn't cover other layers.
   const r = rowEl.getBoundingClientRect();
-  state.layerThumbEl.style.top = Math.max(8, r.top - 4) + 'px';
-  state.layerThumbEl.style.right = (window.innerWidth - r.left + 8) + 'px';
+  const _zr = _zoomRatio();
+  state.layerThumbEl.style.top = Math.max(8, r.top - 4) / _zr + 'px';
+  state.layerThumbEl.style.right = (window.innerWidth - r.left + 8) / _zr + 'px';
   state.layerThumbEl.style.left = '';
   state.layerThumbEl.style.display = 'block';
 }

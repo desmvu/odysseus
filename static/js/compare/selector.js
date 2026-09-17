@@ -507,17 +507,18 @@ async function showModelSelector() {
         let left = inRect.left;
         if (left + width > vw - 8) left = vw - 8 - width;
         if (left < 8) left = 8;
-        dropdown.style.left = left + 'px';
-        dropdown.style.width = width + 'px';
+        const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+        dropdown.style.left = (left / zr) + 'px';
+        dropdown.style.width = (width / zr) + 'px';
         // Vertical: flip above/below based on available room (fixed coords).
         if (flipUp) {
           dropdown.style.top = 'auto';
-          dropdown.style.bottom = (vh - inRect.top + 2) + 'px';
-          dropdown.style.maxHeight = Math.max(120, Math.min(280, above - 16)) + 'px';
+          dropdown.style.bottom = ((vh - inRect.top + 2) / zr) + 'px';
+          dropdown.style.maxHeight = (Math.max(120, Math.min(280, above - 16)) / zr) + 'px';
         } else {
           dropdown.style.bottom = 'auto';
-          dropdown.style.top = (inRect.bottom + 2) + 'px';
-          dropdown.style.maxHeight = Math.max(120, Math.min(280, below - 16)) + 'px';
+          dropdown.style.top = ((inRect.bottom + 2) / zr) + 'px';
+          dropdown.style.maxHeight = (Math.max(120, Math.min(280, below - 16)) / zr) + 'px';
         }
       };
       input.addEventListener('focus', () => {

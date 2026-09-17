@@ -11,6 +11,7 @@ import { sortModelIds } from './modelSort.js';
 import { ordinalSuffix } from './util/ordinal.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 import { getSettings, invalidateSettings } from './appConfig.js';
+import sessionModule from './sessions.js';
 
 const API_BASE = window.location.origin;
 let _open = false;
@@ -108,7 +109,11 @@ function _animateTaskRemoval(ids) {
   const cards = ids.map(_taskCardById).filter(Boolean);
   if (!cards.length) return Promise.resolve();
   for (const card of cards) {
-    card.style.maxHeight = `${Math.max(card.getBoundingClientRect().height, card.scrollHeight)}px`;
+    // getBoundingClientRect().height is post-zoom, scrollHeight is pre-zoom
+    // — convert before comparing/assigning, or this renders 1.25x too tall
+    // under the "Larger" text-size setting's CSS zoom.
+    const zr = (() => { const w = document.documentElement.offsetWidth; return w ? window.innerWidth / w : 1; })();
+    card.style.maxHeight = `${Math.max(card.getBoundingClientRect().height / zr, card.scrollHeight)}px`;
     card.classList.add('memory-tidy-removing');
   }
   return new Promise(resolve => setTimeout(resolve, 520));
@@ -1114,12 +1119,18 @@ function _showTaskDropdown(anchor, items) {
   // loses. topPortalZ() derives the value from the live tool-window stack.
   dd.style.zIndex = String(topPortalZ());
   const rect = anchor.getBoundingClientRect();
+  // rect/window.innerHeight are post-zoom; dd.offsetWidth/Height are
+  // pre-zoom — convert to post-zoom for this clamp math, then convert the
+  // final top/left back to pre-zoom for the style write (the "Larger"
+  // text-size setting's CSS zoom splits these two spaces).
+  const zr = (() => { const w = document.documentElement.offsetWidth; return w ? window.innerWidth / w : 1; })();
+  const ddW = dd.offsetWidth * zr, ddH = dd.offsetHeight * zr;
   let top = rect.bottom + 4;
-  let left = rect.right - dd.offsetWidth;
+  let left = rect.right - ddW;
   if (left < 8) left = 8;
-  if (top + dd.offsetHeight > window.innerHeight - 8) top = rect.top - dd.offsetHeight - 4;
-  dd.style.top = top + 'px';
-  dd.style.left = left + 'px';
+  if (top + ddH > window.innerHeight - 8) top = rect.top - ddH - 4;
+  dd.style.top = (top / zr) + 'px';
+  dd.style.left = (left / zr) + 'px';
   const openedAt = performance.now();
   const close = bindMenuDismiss(dd, () => { dd.remove(); }, (ev) => {
     // Ignore any clicks that occur within 250ms of the open (covers touch
@@ -2842,7 +2853,11 @@ async function _aiDraftTask(inputEl, btnEl) {
     const res = await fetch(`${API_BASE}/api/tasks/parse`, {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: desc }),
+      // Let an unset Utility Model use the selected chat's concrete route.
+      body: JSON.stringify({
+        description: desc,
+        session: sessionModule?.getCurrentSessionId?.() || '',
+      }),
     });
     const data = await res.json();
     if (!data.success || !data.draft) {

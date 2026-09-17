@@ -400,9 +400,10 @@ function initializeEventListeners() {
         // Move menu to body so it's not affected by ancestor transforms
         if (exportMenu.parentElement !== document.body) document.body.appendChild(exportMenu);
         const rect = exportDlBtn.getBoundingClientRect();
-        exportMenu.style.top = (rect.bottom + 4) + 'px';
+        const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+        exportMenu.style.top = ((rect.bottom + 4) / zr) + 'px';
         exportMenu.style.left = 'auto';
-        exportMenu.style.right = (window.innerWidth - rect.right) + 'px';
+        exportMenu.style.right = ((window.innerWidth - rect.right) / zr) + 'px';
         exportMenu.classList.add('open');
       }
     });
@@ -2120,19 +2121,20 @@ function initializeEventListeners() {
     // genuinely taller than the room above the button.
     function positionMenu() {
       const r = plusBtn.getBoundingClientRect();
-      menu.style.left = r.left + 'px';
+      const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+      menu.style.left = (r.left / zr) + 'px';
       menu.style.right = 'auto';
       menu.style.bottom = 'auto';
       menu.style.maxHeight = '';      // reset so we can measure the natural height
       menu.style.overflowY = '';
-      const avail = r.top - 16;        // room above the chevron
-      const natural = menu.scrollHeight;
+      const avail = r.top - 16;        // room above the chevron, rendered px
+      const natural = menu.scrollHeight * zr;
       const h = Math.min(natural, avail);
       if (natural > avail) {           // only cap + scroll when it doesn't fit
-        menu.style.maxHeight = avail + 'px';
+        menu.style.maxHeight = (avail / zr) + 'px';
         menu.style.overflowY = 'auto';
       }
-      menu.style.top = (r.top - 8 - h) + 'px';
+      menu.style.top = ((r.top - 8 - h) / zr) + 'px';
     }
     // Tapping the chevron must NOT steal focus from the message box, or the
     // mobile keyboard collapses. preventDefault on pointerdown keeps the

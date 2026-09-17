@@ -441,20 +441,21 @@ function _openSkillMenu(btn, card, sk, name, isPublished) {
   // bring-to-front counter climbs past the static value (#4720).
   menu.style.zIndex = String(topPortalZ());
   const r = btn.getBoundingClientRect();
-  menu.style.top = (r.bottom + 4) + 'px';
-  menu.style.right = Math.max(6, window.innerWidth - r.right) + 'px';
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+  menu.style.top = ((r.bottom + 4) / zr) + 'px';
+  menu.style.right = (Math.max(6, window.innerWidth - r.right) / zr) + 'px';
   // Keep it on-screen (mobile): flip above the button if it would overflow the
   // bottom, clamp the left edge, and cap the height as a last resort.
   const mr = menu.getBoundingClientRect();
   if (mr.bottom > window.innerHeight - 6) {
-    menu.style.top = Math.max(6, r.top - mr.height - 4) + 'px';
+    menu.style.top = (Math.max(6, r.top - mr.height - 4) / zr) + 'px';
   }
   if (mr.left < 6) {
-    menu.style.right = Math.max(6, window.innerWidth - 6 - mr.width) + 'px';
+    menu.style.right = (Math.max(6, window.innerWidth - 6 - mr.width) / zr) + 'px';
   }
   const mr2 = menu.getBoundingClientRect();
   if (mr2.bottom > window.innerHeight - 6) {
-    menu.style.maxHeight = Math.max(80, window.innerHeight - 12 - mr2.top) + 'px';
+    menu.style.maxHeight = (Math.max(80, window.innerHeight - 12 - mr2.top) / zr) + 'px';
     menu.style.overflowY = 'auto';
   }
   const close = bindMenuDismiss(menu, () => { menu.remove(); }, (ev) => !menu.contains(ev.target));

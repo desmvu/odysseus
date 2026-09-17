@@ -1968,7 +1968,9 @@ body.bg-pattern-sparkles {
     /* Welcome screen — centered in available space above input bar */
     #welcome-screen {
       position:absolute;
-      top:40%;
+      /* Center in the actual free region above the composer, rather than the
+         full viewport.  The composer moves upward on the welcome screen. */
+      top:calc((100% - var(--composer-clearance, 30vh)) / 2);
       left:50%;
       transform:translate(-50%,-50%);
       display:flex;
@@ -8538,9 +8540,16 @@ button.hamburger {
 }
 
 /* Lists */
+/* Indent with padding, not margin: markers are drawn outside the list box, so
+   a margin leaves them in `.msg`'s overflow:hidden gutter, which clipped the
+   leading digit of two-digit markers ("10." rendered as "0."). Ordered lists
+   get the wider gutter because their markers grow with the item count. */
 .msg ul, .msg ol {
-  margin: 0.3em 0 0.3em 1.2em;
-  padding: 0;
+  margin: 0.3em 0;
+  padding-left: 1.6em;
+}
+.msg ol {
+  padding-left: 2.8em;
 }
 .msg li {
   margin: 0.15em 0;

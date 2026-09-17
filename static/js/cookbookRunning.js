@@ -2793,11 +2793,22 @@ export function _renderRunningTab() {
           dropdown.appendChild(div);
         }
 
+        // The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+        // `zoom`, which splits getBoundingClientRect() (post-zoom/rendered
+        // pixels, matching window.innerWidth/innerHeight) from offsetWidth/
+        // offsetHeight and any `.style.*` assignment (pre-zoom/layout pixels).
+        // Divide a post-zoom value by this ratio right before writing it into
+        // style.left/top/right/bottom/width/height.
+        const _zoomRatio = () => {
+          const w = document.documentElement.offsetWidth;
+          return w ? window.innerWidth / w : 1;
+        };
         const rect = menuBtn.getBoundingClientRect();
+        const _zr = _zoomRatio();
         dropdown.style.position = 'fixed';
         dropdown.style.zIndex = String(topPortalZ());
-        dropdown.style.top = rect.bottom + 2 + 'px';
-        dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+        dropdown.style.top = (rect.bottom + 2) / _zr + 'px';
+        dropdown.style.right = ((window.innerWidth - rect.right) / _zr) + 'px';
         document.body.appendChild(dropdown);
         // Clamp into the *visible* area. On mobile (esp. Firefox) window.innerHeight
         // includes the strip hidden under the dynamic toolbar, so a menu that "fits"
@@ -2808,14 +2819,16 @@ export function _renderRunningTab() {
           const vv = window.visualViewport;
           const viewTop = vv ? vv.offsetTop : 0;
           const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-          const dh = dropdown.offsetHeight;
+          // dropdown.offsetHeight is pre-zoom; rect/viewBottom are post-zoom —
+          // convert dh to post-zoom so this clamp math stays in one space.
+          const dh = dropdown.offsetHeight * _zr;
           const m = 8;
           let top = rect.bottom + 2;
           if (top + dh > viewBottom - m) {
             const above = rect.top - 2 - dh;
             top = above >= viewTop + m ? above : Math.max(viewTop + m, viewBottom - dh - m);
           }
-          dropdown.style.top = top + 'px';
+          dropdown.style.top = (top / _zr) + 'px';
         }
 
         const closeHandler = (ev) => {

@@ -10,6 +10,19 @@ import { topPortalZ } from './toolWindowZOrder.js';
 
 var escapeHtml = uiModule.esc;
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect()/scrollHeight measurement:
+// getBoundingClientRect() reports post-zoom/rendered pixels (matching
+// window.innerWidth/innerHeight), while offsetWidth/offsetHeight/
+// scrollHeight and any `.style.*` assignment are pre-zoom/layout pixels.
+// Divide a post-zoom value by this ratio right before writing it into a
+// style property, or multiply a pre-zoom value by it before comparing
+// against a post-zoom one.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 let memories = [];
 let activeCategory = 'all';
 let sortOrder = 'newest';
@@ -522,8 +535,13 @@ export async function tidyMemories() {
   const beforeMap = new Map(memories.map(m => [m.id, { ...m }]));
 
   try {
+    // With Utility Model set to “Same as chat”, let the server use the
+    // currently selected chat's concrete endpoint/model rather than an
+    // unrelated global default.
+    const sessionId = sessionModule?.getCurrentSessionId?.();
     const res = await fetch(`${window.location.origin}/api/memory/audit`, {
       method: 'POST',
+      body: sessionId ? new URLSearchParams({ session: sessionId }) : undefined,
     });
 
     if (!res.ok) {
@@ -594,7 +612,10 @@ async function animateMemoryRemoval(ids) {
     .filter(el => idSet.has(String(el.dataset.memoryId)));
   if (!items.length) return;
   for (const el of items) {
-    el.style.maxHeight = `${Math.max(el.getBoundingClientRect().height, el.scrollHeight)}px`;
+    // getBoundingClientRect().height is post-zoom, scrollHeight is pre-zoom —
+    // convert before comparing so this collapse animation starts from the
+    // right height under the "Larger" text-size setting.
+    el.style.maxHeight = `${Math.max(el.getBoundingClientRect().height / _zoomRatio(), el.scrollHeight)}px`;
     el.classList.add('memory-tidy-removing');
   }
   await sleep(520);
@@ -874,10 +895,11 @@ export function renderMemoryList() {
         e.stopPropagation();
         // Close any other open dropdowns
         document.querySelectorAll('.memory-item-dropdown').forEach(d => d.remove());
+        const _zr = _zoomRatio();
         const rect = menuBtn.getBoundingClientRect();
         dropdown.style.position = 'fixed';
-        dropdown.style.top = rect.bottom + 2 + 'px';
-        dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+        dropdown.style.top = (rect.bottom + 2) / _zr + 'px';
+        dropdown.style.right = ((window.innerWidth - rect.right) / _zr) + 'px';
         dropdown.style.left = 'auto';
         // Portaled to <body>, so it must outrank the Brain modal it belongs to.
         // Tool modals get a monotonically increasing z-index from modalManager's
@@ -892,14 +914,14 @@ export function renderMemoryList() {
         // bottom, clamp the left edge, cap height as a last resort.
         const dr = dropdown.getBoundingClientRect();
         if (dr.bottom > window.innerHeight - 6) {
-          dropdown.style.top = Math.max(6, rect.top - dr.height - 2) + 'px';
+          dropdown.style.top = Math.max(6, rect.top - dr.height - 2) / _zr + 'px';
         }
         if (dr.left < 6) {
-          dropdown.style.right = Math.max(6, window.innerWidth - 6 - dr.width) + 'px';
+          dropdown.style.right = Math.max(6, window.innerWidth - 6 - dr.width) / _zr + 'px';
         }
         const dr2 = dropdown.getBoundingClientRect();
         if (dr2.bottom > window.innerHeight - 6) {
-          dropdown.style.maxHeight = Math.max(80, window.innerHeight - 12 - dr2.top) + 'px';
+          dropdown.style.maxHeight = Math.max(80, window.innerHeight - 12 - dr2.top) / _zr + 'px';
           dropdown.style.overflowY = 'auto';
         }
 

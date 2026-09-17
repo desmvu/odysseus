@@ -26,6 +26,14 @@ const MIN_EDGE_DOCK_WIDTH = 320;
 
 let _edgeDockHandlePositioner = null;
 
+// CSS `zoom` makes viewport/client and DOMRect coordinates rendered pixels,
+// while inline CSS lengths remain authored pixels. Keep all dock hit-testing in
+// rendered pixels and convert only at style/localStorage boundaries.
+function _zoomRatio() {
+  const width = document.documentElement.offsetWidth;
+  return width ? window.innerWidth / width : 1;
+}
+
 function _positionEdgeDockResizeHandles() {
   try { _edgeDockHandlePositioner && _edgeDockHandlePositioner(); } catch (_) {}
 }
@@ -74,7 +82,7 @@ function _storedDockWidth(modal, content, side) {
   if (!key) return null;
   try {
     const n = parseFloat(localStorage.getItem(key) || '');
-    return Number.isFinite(n) && n > 0 ? n : null;
+    return Number.isFinite(n) && n > 0 ? n * _zoomRatio() : null;
   } catch (_) {
     return null;
   }
@@ -83,7 +91,7 @@ function _storedDockWidth(modal, content, side) {
 function _saveDockWidth(modal, content, side, width) {
   const key = _dockWidthStorageKey(modal, content, side);
   if (!key) return;
-  try { localStorage.setItem(key, String(Math.round(width))); } catch (_) {}
+  try { localStorage.setItem(key, String(Math.round(width / _zoomRatio()))); } catch (_) {}
 }
 
 function _minEdgeDockWidth() {
@@ -97,7 +105,7 @@ function _activeDockWidth(side) {
   const prop = side === 'left' ? '--left-dock-w' : '--right-dock-w';
   const raw = getComputedStyle(document.documentElement).getPropertyValue(prop);
   const n = parseFloat(raw || '');
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  return Number.isFinite(n) && n > 0 ? n * _zoomRatio() : 0;
 }
 
 function _clampDockWidthToSpace(width, min, max) {
@@ -202,14 +210,14 @@ function _storedEmailDocSplitWidth() {
   try {
     const raw = localStorage.getItem(EMAIL_DOC_SPLIT_WIDTH_KEY);
     const n = parseFloat(raw || '');
-    return Number.isFinite(n) && n > 0 ? n : null;
+    return Number.isFinite(n) && n > 0 ? n * _zoomRatio() : null;
   } catch (_) {
     return null;
   }
 }
 
 function _saveEmailDocSplitWidth(width) {
-  try { localStorage.setItem(EMAIL_DOC_SPLIT_WIDTH_KEY, String(Math.round(width))); } catch (_) {}
+  try { localStorage.setItem(EMAIL_DOC_SPLIT_WIDTH_KEY, String(Math.round(width / _zoomRatio()))); } catch (_) {}
 }
 
 function _disconnectLeftDockObservers(content) {
@@ -234,7 +242,7 @@ function _applyEmailDocSplitGeometry(left, emailWidth) {
   const docPane = document.getElementById('doc-editor-pane');
   if (!docPane || window.innerWidth <= 768) return;
   docPane.style.setProperty('position', 'fixed', 'important');
-  docPane.style.setProperty('left', `${x}px`, 'important');
+  docPane.style.setProperty('left', `${x / _zoomRatio()}px`, 'important');
   docPane.style.setProperty('right', 'var(--right-dock-w, 0px)', 'important');
   docPane.style.setProperty('top', '0px', 'important');
   docPane.style.setProperty('bottom', '0px', 'important');
@@ -280,9 +288,10 @@ function _anchorLeftDock(content) {
   const w = document.body.classList.contains('doc-view')
     ? _resolveEmailDocSplitWidth(content, left)
     : _resolveLeftDockWidth(content, left);
-  content.style.left = left + 'px';
-  content.style.width = w + 'px';
-  content.style.maxWidth = w + 'px';
+  const zr = _zoomRatio();
+  content.style.left = (left / zr) + 'px';
+  content.style.width = (w / zr) + 'px';
+  content.style.maxWidth = (w / zr) + 'px';
   // If a document is also open, drive the existing email/doc-split CSS rule
   // (style.css `body.email-doc-split-active.doc-view .doc-editor-pane`) so
   // the doc-pane becomes position:fixed starting at the email's right edge.
@@ -298,7 +307,7 @@ function _anchorLeftDock(content) {
   } else if (document.body.classList.contains('email-doc-split-active')) {
     _clearEmailDocSplitGeometry();
   } else {
-    document.documentElement.style.setProperty('--left-dock-w', w + 'px');
+    document.documentElement.style.setProperty('--left-dock-w', (w / zr) + 'px');
   }
 }
 
@@ -498,10 +507,11 @@ function _applyDockInternal(modal, side, dockClass) {
     w = _resolveRightDockWidth(modal, content);
     content.style.left = 'auto';
     content.style.right = '0';
-    content.style.width = w + 'px';
-    content.style.maxWidth = w + 'px';
+    const zr = _zoomRatio();
+    content.style.width = (w / zr) + 'px';
+    content.style.maxWidth = (w / zr) + 'px';
     document.body.classList.add('right-dock-active');
-    document.documentElement.style.setProperty('--right-dock-w', w + 'px');
+    document.documentElement.style.setProperty('--right-dock-w', (w / zr) + 'px');
     if (_shouldAutoCollapseSidebar(w)) {
       _collapseSidebarToRail();
       content._preDockSnapshot.collapsedSidebar = true;
@@ -632,6 +642,12 @@ export function clearRightDock(modal, cx, cy, dockClass) {
   // from the inline style attribute, letting CSS rules take back over.
   const r = snap && snap.rect;
   const sty = (snap && snap.style) || {};
+  // r.width/height/left/top were captured via getBoundingClientRect() (post-
+  // zoom/rendered pixels under the "Larger" text-size setting's CSS `zoom`)
+  // but everything below writes to `.style.*`, which is interpreted in
+  // pre-zoom/layout pixels — convert once, right before each write, rather
+  // than leaving the raw post-zoom number in an inline style.
+  const _zr = _zoomRatio();
   content.style.position = sty.position || 'fixed';
   content.style.right = sty.right || '';
   content.style.bottom = sty.bottom || '';
@@ -642,9 +658,9 @@ export function clearRightDock(modal, cx, cy, dockClass) {
   // content's min-width and the user sees a tiny pane after undock.
   // Use the captured rendered rect as a backup so the floating window
   // returns at roughly the same dimensions it had before docking.
-  content.style.width = sty.width || (r && r.width ? r.width + 'px' : '');
+  content.style.width = sty.width || (r && r.width ? (r.width / _zr) + 'px' : '');
   content.style.maxWidth = sty.maxWidth || '';
-  content.style.height = sty.height || (r && r.height ? r.height + 'px' : '');
+  content.style.height = sty.height || (r && r.height ? (r.height / _zr) + 'px' : '');
   content.style.maxHeight = sty.maxHeight || '';
   content.style.borderRadius = sty.borderRadius || '';
   content.style.transform = sty.transform || '';
@@ -653,14 +669,17 @@ export function clearRightDock(modal, cx, cy, dockClass) {
   // Use the captured rect width as the centering reference (CSS may not
   // have resolved the inline width yet on this microtask). Fall back to
   // the original captured left/top when no cursor coords are passed.
-  const refW = (r && r.width) || content.offsetWidth || 720;
-  const refH = (r && r.height) || content.offsetHeight || (window.innerHeight * 0.7);
+  // Keep refW/refH in POST-ZOOM terms (matching r.width/height and cx/cy,
+  // which are mouse-event/rendered-space numbers) — offsetWidth/offsetHeight
+  // are pre-zoom, so scale them up to match when they're the fallback used.
+  const refW = (r && r.width) || (content.offsetWidth * _zr) || 720 * _zr;
+  const refH = (r && r.height) || (content.offsetHeight * _zr) || (window.innerHeight * 0.7);
   const targetLeft = (typeof cx === 'number')
-    ? Math.max(8, cx - refW / 2)
-    : (sty.left || (r ? r.left + 'px' : Math.max(8, (window.innerWidth - refW) / 2) + 'px'));
+    ? Math.max(8, cx - refW / 2) / _zr
+    : (sty.left || (r ? (r.left / _zr) + 'px' : (Math.max(8, (window.innerWidth - refW) / 2) / _zr) + 'px'));
   const targetTop = (typeof cy === 'number')
-    ? Math.max(8, cy - 20)
-    : (sty.top || (r ? r.top + 'px' : Math.max(8, (window.innerHeight - refH) / 3) + 'px'));
+    ? Math.max(8, cy - 20) / _zr
+    : (sty.top || (r ? (r.top / _zr) + 'px' : (Math.max(8, (window.innerHeight - refH) / 3) / _zr) + 'px'));
   content.style.left = (typeof targetLeft === 'number') ? targetLeft + 'px' : targetLeft;
   content.style.top = (typeof targetTop === 'number') ? targetTop + 'px' : targetTop;
   delete content._preDockSnapshot;
@@ -873,10 +892,11 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
       content._userDockWidth = w;
       content.style.left = 'auto';
       content.style.right = '0';
-      content.style.width = w + 'px';
-      content.style.maxWidth = w + 'px';
+      const zr = _zoomRatio();
+      content.style.width = (w / zr) + 'px';
+      content.style.maxWidth = (w / zr) + 'px';
       document.body.classList.add('right-dock-active');
-      document.documentElement.style.setProperty('--right-dock-w', w + 'px');
+      document.documentElement.style.setProperty('--right-dock-w', (w / zr) + 'px');
       if (_shouldAutoCollapseSidebar(w)) {
         _collapseSidebarToRail();
         if (content._preDockSnapshot) content._preDockSnapshot.collapsedSidebar = true;
@@ -886,14 +906,15 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
       w = _clampLeftDockWidth(clientX - left, left);
       content._userDockWidth = w;
       content._emailDocSplitUserW = w;
-      content.style.left = left + 'px';
+      const zr = _zoomRatio();
+      content.style.left = (left / zr) + 'px';
       content.style.right = 'auto';
-      content.style.width = w + 'px';
-      content.style.maxWidth = w + 'px';
+      content.style.width = (w / zr) + 'px';
+      content.style.maxWidth = (w / zr) + 'px';
       document.body.classList.add('left-dock-active');
       document.documentElement.style.setProperty(
         '--left-dock-w',
-        document.body.classList.contains('email-doc-split-active') ? '0px' : w + 'px',
+        document.body.classList.contains('email-doc-split-active') ? '0px' : (w / zr) + 'px',
       );
     }
     _positionEdgeDockResizeHandles();
@@ -1023,7 +1044,7 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
     const x = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--email-doc-split-right-x')) || 0;
     if (!x) { stripe.style.display = 'none'; return; }
     stripe.style.display = 'block';
-    stripe.style.left = (x - 5) + 'px';
+    stripe.style.left = ((x - 5) / _zoomRatio()) + 'px';
   };
 
   const _dragTo = (clientX) => {
@@ -1032,9 +1053,10 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
     const left = _leftNavRight();
     const w = _clampEmailDocSplitWidth(clientX - left, left);
     content._emailDocSplitUserW = w;
-    content.style.left = left + 'px';
-    content.style.width = w + 'px';
-    content.style.maxWidth = w + 'px';
+    const zr = _zoomRatio();
+    content.style.left = (left / zr) + 'px';
+    content.style.width = (w / zr) + 'px';
+    content.style.maxWidth = (w / zr) + 'px';
     _applyEmailDocSplitGeometry(left, w);
     _position();
   };

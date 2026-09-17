@@ -847,15 +847,16 @@ function _promptParallelOrSequential(count, anchorBtn) {
 
   // Position: prefer dropping down from the button's bottom-right corner.
   // If there isn't enough room below the viewport, flip to drop-up above.
-  const popHeight = pop.offsetHeight;
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+  const popHeight = pop.offsetHeight * zr;
   const margin = 6;
   const spaceBelow = window.innerHeight - rect.bottom;
   const goUp = spaceBelow < popHeight + margin && rect.top > popHeight + margin;
   const top = goUp ? (rect.top - popHeight - margin) : (rect.bottom + margin);
   // Right-align to the button so the menu doesn't extend off-screen on the right
   const right = Math.max(8, window.innerWidth - rect.right);
-  pop.style.top = `${Math.round(top)}px`;
-  pop.style.right = `${Math.round(right)}px`;
+  pop.style.top = `${Math.round(top / zr)}px`;
+  pop.style.right = `${Math.round(right / zr)}px`;
   pop.classList.add(goUp ? 'rrm-up' : 'rrm-down');
 
   const close = () => {

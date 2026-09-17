@@ -13,6 +13,17 @@ import { applyEdgeDock, clearDockSide } from './modalSnap.js';
 import { topToolWindowZ, topPortalZ } from './toolWindowZOrder.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (pre-zoom/layout pixels). Divide a post-zoom
+// value by this ratio right before writing it into style.left/top/right/
+// bottom/width/height.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 const API_BASE = window.location.origin;
 let _open = false;
 let _notes = [];
@@ -96,9 +107,13 @@ function _showNotesFirstOpenHint(pane) {
 
   const place = () => {
     const r = pane.getBoundingClientRect();
-    const hw = hint.offsetWidth || 260;
-    hint.style.top = Math.max(12, r.top + 58) + 'px';
-    hint.style.left = Math.min(window.innerWidth - hw - 12, Math.max(12, r.left + 18)) + 'px';
+    const _zr = _zoomRatio();
+    // hw (offsetWidth) is pre-zoom; r/window.innerWidth are post-zoom —
+    // convert hw to post-zoom so this clamp math stays in one space, then
+    // convert the final position back for the style write.
+    const hw = (hint.offsetWidth || 260) * _zr;
+    hint.style.top = Math.max(12, r.top + 58) / _zr + 'px';
+    hint.style.left = Math.min(window.innerWidth - hw - 12, Math.max(12, r.left + 18)) / _zr + 'px';
   };
   const close = () => {
     window.removeEventListener('resize', place);
@@ -426,7 +441,11 @@ function _archiveNoteById(id, { card = null, celebrate = false } = {}) {
     const undone = (note.items || []).filter(i => !i.done);
     if (undone.length === 0) {
       const r = card.getBoundingClientRect();
-      spawnConfetti(r.left + r.width / 2, r.top + r.height / 2, 80);
+      // spawnConfetti (compare/vote.js) assigns its x/y straight to
+      // style.left/top (pre-zoom), but getBoundingClientRect() is post-zoom
+      // — convert here at the call site rather than in that shared helper.
+      const _zr = _zoomRatio();
+      spawnConfetti((r.left + r.width / 2) / _zr, (r.top + r.height / 2) / _zr, 80);
     }
   }
   const removed = _notes.splice(idx, 1)[0];
@@ -1720,8 +1739,13 @@ function _animateReflow(prevPositions) {
     const prev = prevPositions.get(id);
     if (!prev) return;
     const next = card.getBoundingClientRect();
-    const dx = prev.left - next.left;
-    const dy = prev.top - next.top;
+    // prev/next are both post-zoom (getBoundingClientRect); CSS transform
+    // translate distances are pre-zoom/authored, same space as style.left/
+    // top — convert the delta or this FLIP "jump back" overshoots by the
+    // zoom factor under the "Larger" text-size setting.
+    const _zr = _zoomRatio();
+    const dx = (prev.left - next.left) / _zr;
+    const dy = (prev.top - next.top) / _zr;
     if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
     // Invert: jump back to old position
     card.style.transition = 'none';
@@ -2020,7 +2044,11 @@ function _applyMasonry(body) {
       form.style.gridColumn = '1 / -1';
       const isDrawForm = !!form.querySelector('.note-form-type-seg.is-draw');
       const minSpan = isMobileGrid ? (isDrawForm ? 104 : 64) : 1;
-      const renderedHeight = form.getBoundingClientRect?.().height || 0;
+      // getBoundingClientRect() is post-zoom, scrollHeight is pre-zoom —
+      // convert before mixing via Math.max, or this picks the post-zoom
+      // (1.25x larger) value under the "Larger" text-size setting and
+      // over-reserves grid rows.
+      const renderedHeight = (form.getBoundingClientRect?.().height || 0) / _zoomRatio();
       const drawReserve = isDrawForm && isMobileGrid ? 12 : 12;
       const measuredHeight = Math.max(form.scrollHeight, renderedHeight) + drawReserve;
       form.style.gridRowEnd = `span ${Math.max(minSpan, spanForHeight(measuredHeight))}`;
@@ -2074,7 +2102,8 @@ function _wireTodayView(body) {
         // Confetti when ALL items just turned done.
         if (note.items.every(it => it.done)) {
           const r = (row || dot).getBoundingClientRect();
-          spawnConfetti(r.left + r.width / 2, r.top + r.height / 2, 60);
+          const _zr = _zoomRatio();
+          spawnConfetti((r.left + r.width / 2) / _zr, (r.top + r.height / 2) / _zr, 60);
         }
       } catch {
         note.items[idx].done = !note.items[idx].done;
@@ -2359,7 +2388,8 @@ function _bindCardEvents(body) {
       // Celebrate completion — same confetti shower the bulk-archive uses.
       if (card) {
         const r = card.getBoundingClientRect();
-        spawnConfetti(r.left + r.width / 2, r.top + r.height / 2, 80);
+        const _zr = _zoomRatio();
+        spawnConfetti((r.left + r.width / 2) / _zr, (r.top + r.height / 2) / _zr, 80);
       }
       const removed = _notes.splice(idx, 1)[0];
       const undo = () => _undoArchive(removed, idx);
@@ -2665,7 +2695,8 @@ function _bindCardEvents(body) {
         const card = el.closest('.note-card');
         if (card) {
           const r = card.getBoundingClientRect();
-          spawnConfetti(r.left + r.width / 2, r.top + r.height / 2, 60);
+          const _zr = _zoomRatio();
+          spawnConfetti((r.left + r.width / 2) / _zr, (r.top + r.height / 2) / _zr, 60);
         }
       }
       _patchNote(noteId, { items: note.items }).catch(() => {
@@ -3267,15 +3298,16 @@ function _buildForm(note = null) {
       const rect = anchor.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const mw = menu.offsetWidth || 220;
-      const mh = menu.offsetHeight || 280;
+      const zr = _zoomRatio();
+      const mw = (menu.offsetWidth || 220) * zr;
+      const mh = (menu.offsetHeight || 280) * zr;
       let top = rect.bottom + 4;
       let left = rect.left;
       if (top + mh > vh - 8) top = Math.max(8, rect.top - mh - 4);
       if (left + mw > vw - 8) left = Math.max(8, vw - mw - 8);
       if (left < 8) left = 8;
-      menu.style.top = top + 'px';
-      menu.style.left = left + 'px';
+      menu.style.top = (top / zr) + 'px';
+      menu.style.left = (left / zr) + 'px';
     }
 
     function render() {
@@ -3473,15 +3505,16 @@ function _buildForm(note = null) {
     const rect = anchor.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const mw = menu.offsetWidth || 240;
-    const mh = menu.offsetHeight || 200;
+    const zr = _zoomRatio();
+    const mw = (menu.offsetWidth || 240) * zr;
+    const mh = (menu.offsetHeight || 200) * zr;
     let top = rect.bottom + 4;
     let left = rect.left;
     if (top + mh > vh - 8) top = Math.max(8, rect.top - mh - 4);
     if (left + mw > vw - 8) left = Math.max(8, vw - mw - 8);
     if (left < 8) left = 8;
-    menu.style.top = top + 'px';
-    menu.style.left = left + 'px';
+    menu.style.top = (top / zr) + 'px';
+    menu.style.left = (left / zr) + 'px';
     const dInput = menu.querySelector('.note-reminder-date-input');
     dInput.focus();
     if (typeof dInput.showPicker === 'function') {

@@ -27,6 +27,13 @@ let _ghost = null;
 let _activeZone = null;
 let _tracking = null; // { content, startRect }
 
+// Snap zones and DOMRects are viewport/rendered pixels under CSS zoom; inline
+// geometry is authored pixels. Convert exactly where geometry is written.
+function _zoomRatio() {
+  const width = document.documentElement.offsetWidth;
+  return width ? window.innerWidth / width : 1;
+}
+
 function _isDesktop() { return window.innerWidth > 768; }
 
 function _dockClassForSide(side) {
@@ -67,10 +74,11 @@ function _hideGhost() {
 
 function _showGhost(rect) {
   const g = _ensureGhost();
-  g.style.left = rect.left + 'px';
-  g.style.top  = rect.top  + 'px';
-  g.style.width  = rect.width  + 'px';
-  g.style.height = rect.height + 'px';
+  const zr = _zoomRatio();
+  g.style.left = (rect.left / zr) + 'px';
+  g.style.top  = (rect.top / zr) + 'px';
+  g.style.width  = (rect.width / zr) + 'px';
+  g.style.height = (rect.height / zr) + 'px';
   g.classList.add('visible');
 }
 
@@ -189,8 +197,8 @@ function _applySnap(content, rect, zoneName) {
   if (!content.dataset._tilePreSnap) {
     content.dataset._tilePreSnap = JSON.stringify({
       position: 'fixed',
-      left:   content.style.left || (Math.round(_fromRect.left) + 'px'),
-      top:    content.style.top  || (Math.round(_fromRect.top)  + 'px'),
+      left:   content.style.left || (Math.round(_fromRect.left / _zoomRatio()) + 'px'),
+      top:    content.style.top  || (Math.round(_fromRect.top / _zoomRatio())  + 'px'),
       width:  content.style.width,
       height: content.style.height,
       maxHeight: content.style.maxHeight,
@@ -202,11 +210,12 @@ function _applySnap(content, rect, zoneName) {
   // and CSS that otherwise re-center the .modal-content, which made the snap
   // "jump back to the middle" on release.
   content.style.setProperty('position', 'fixed', 'important');
-  content.style.setProperty('left',   rect.left   + 'px', 'important');
-  content.style.setProperty('top',    rect.top    + 'px', 'important');
-  content.style.setProperty('width',  rect.width  + 'px', 'important');
-  content.style.setProperty('height', rect.height + 'px', 'important');
-  content.style.setProperty('max-height', rect.height + 'px', 'important');
+  const zr = _zoomRatio();
+  content.style.setProperty('left',   (rect.left / zr)   + 'px', 'important');
+  content.style.setProperty('top',    (rect.top / zr)    + 'px', 'important');
+  content.style.setProperty('width',  (rect.width / zr)  + 'px', 'important');
+  content.style.setProperty('height', (rect.height / zr) + 'px', 'important');
+  content.style.setProperty('max-height', (rect.height / zr) + 'px', 'important');
   content.style.setProperty('margin', '0', 'important');
   content.style.setProperty('transform', 'none', 'important');
   content.dataset._tileZone = zoneName;
@@ -317,11 +326,12 @@ function _reclampAll(animate = false) {
       c.style.transition = 'left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), top 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)';
       setTimeout(() => { c.style.transition = ''; }, 250);
     }
-    c.style.setProperty('left', r.left + 'px', 'important');
-    c.style.setProperty('top',  r.top  + 'px', 'important');
-    c.style.setProperty('width', r.width + 'px', 'important');
-    c.style.setProperty('height', r.height + 'px', 'important');
-    c.style.setProperty('max-height', r.height + 'px', 'important');
+    const zr = _zoomRatio();
+    c.style.setProperty('left', (r.left / zr) + 'px', 'important');
+    c.style.setProperty('top',  (r.top / zr)  + 'px', 'important');
+    c.style.setProperty('width', (r.width / zr) + 'px', 'important');
+    c.style.setProperty('height', (r.height / zr) + 'px', 'important');
+    c.style.setProperty('max-height', (r.height / zr) + 'px', 'important');
   });
 }
 

@@ -18,6 +18,17 @@ let _skipAutoSelect = false;
 let _suppressNextSessionLoading = false;
 let _rootFreshChatApplied = false;
 const HISTORY_DISPLAY_CHAR_LIMIT = 160000;
+
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (pre-zoom/layout pixels). Divide a post-zoom
+// value by this ratio right before writing it into style.left/top/width/
+// height.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
 const HISTORY_DISPLAY_TAIL_CHARS = 20000;
 const HISTORY_PAGE_LIMIT_MOBILE = 8;
 const HISTORY_PAGE_LIMIT_DESKTOP = 24;
@@ -449,6 +460,7 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
       sub.style.display = 'none';
     } else {
       const rect = moveItem.getBoundingClientRect();
+      const _zr = _zoomRatio();
       const isMobile = window.innerWidth <= 768;
       sub.style.top = '-9999px';
       sub.style.display = 'block';
@@ -457,26 +469,26 @@ function buildFolderSubmenu(sessionId, currentFolder, dropdown) {
       if (isMobile) {
         // On mobile: position below the dropdown, centered
         const ddRect = dropdown.getBoundingClientRect();
-        sub.style.left = Math.max(8, ddRect.left) + 'px';
-        sub.style.width = Math.min(ddRect.width, window.innerWidth - 16) + 'px';
+        sub.style.left = Math.max(8, ddRect.left) / _zr + 'px';
+        sub.style.width = Math.min(ddRect.width, window.innerWidth - 16) / _zr + 'px';
         const topBelow = ddRect.bottom + 4;
         if (topBelow + subRect.height > window.innerHeight) {
-          sub.style.top = Math.max(8, ddRect.top - subRect.height - 4) + 'px';
+          sub.style.top = Math.max(8, ddRect.top - subRect.height - 4) / _zr + 'px';
         } else {
-          sub.style.top = topBelow + 'px';
+          sub.style.top = topBelow / _zr + 'px';
         }
       } else {
         // Desktop: to the right
-        sub.style.left = rect.right + 2 + 'px';
+        sub.style.left = (rect.right + 2) / _zr + 'px';
         sub.style.width = '';
         if (rect.top + subRect.height > window.innerHeight) {
-          sub.style.top = Math.max(2, window.innerHeight - subRect.height - 4) + 'px';
+          sub.style.top = Math.max(2, window.innerHeight - subRect.height - 4) / _zr + 'px';
         } else {
-          sub.style.top = rect.top + 'px';
+          sub.style.top = rect.top / _zr + 'px';
         }
         // Clamp right edge
         if (rect.right + 2 + subRect.width > window.innerWidth - 8) {
-          sub.style.left = Math.max(8, rect.left - subRect.width - 2) + 'px';
+          sub.style.left = Math.max(8, rect.left - subRect.width - 2) / _zr + 'px';
         }
       }
     }
@@ -628,16 +640,17 @@ function createSessionItem(s) {
         // Close any other open dropdowns
         document.querySelectorAll('.dropdown').forEach(d => { if (d !== dd) d.style.display = 'none'; });
         const rect = div.getBoundingClientRect();
+        const _zr = _zoomRatio();
         dd.style.position = 'fixed';
-        dd.style.left = rect.left + 'px';
-        dd.style.top = (rect.bottom + 4) + 'px';
+        dd.style.left = rect.left / _zr + 'px';
+        dd.style.top = (rect.bottom + 4) / _zr + 'px';
         dd.style.right = 'auto';
         dd.style.display = 'block';
         dd.style.zIndex = '1000';
         // Clamp to viewport
         requestAnimationFrame(() => {
           const mr = dd.getBoundingClientRect();
-          if (mr.bottom > window.innerHeight - 8) dd.style.top = (rect.top - mr.height - 4) + 'px';
+          if (mr.bottom > window.innerHeight - 8) dd.style.top = (rect.top - mr.height - 4) / _zr + 'px';
           if (mr.right > window.innerWidth - 8) { dd.style.left = 'auto'; dd.style.right = '8px'; }
         });
         // Close on tap outside
@@ -818,17 +831,18 @@ function createSessionItem(s) {
     } else {
       // Position the dropdown using viewport coords
       const rect = menuBtn.getBoundingClientRect();
+      const _zr = _zoomRatio();
       dropdown.style.left = '';
-      dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+      dropdown.style.right = (window.innerWidth - rect.right) / _zr + 'px';
       // Show off-screen first to measure height
       dropdown.style.top = '-9999px';
       dropdown.style.display = 'block';
       const ddRect = dropdown.getBoundingClientRect();
       // Flip above if not enough room below
       if (rect.bottom + 2 + ddRect.height > window.innerHeight) {
-        dropdown.style.top = Math.max(2, rect.top - ddRect.height - 2) + 'px';
+        dropdown.style.top = Math.max(2, rect.top - ddRect.height - 2) / _zr + 'px';
       } else {
-        dropdown.style.top = rect.bottom + 2 + 'px';
+        dropdown.style.top = (rect.bottom + 2) / _zr + 'px';
       }
     }
   });
@@ -1660,7 +1674,10 @@ function _animateSessionRowsRemoving(ids, selector) {
     .filter(row => idSet.has(String(row.dataset.sessionId || row.dataset.sid)));
   if (!rows.length) return Promise.resolve();
   for (const row of rows) {
-    row.style.maxHeight = `${Math.max(row.getBoundingClientRect().height, row.scrollHeight)}px`;
+    // getBoundingClientRect().height is post-zoom, scrollHeight is pre-zoom —
+    // convert before comparing so this collapse animation starts from the
+    // right height under the "Larger" text-size setting.
+    row.style.maxHeight = `${Math.max(row.getBoundingClientRect().height / _zoomRatio(), row.scrollHeight)}px`;
     row.classList.add('memory-tidy-removing');
   }
   return new Promise(resolve => setTimeout(resolve, 520));
@@ -2864,14 +2881,15 @@ function _showDropdown(anchorEl, items) {
 
   // Position using viewport coords (same pattern as session menus)
   const rect = anchorEl.getBoundingClientRect();
-  dd.style.right = (window.innerWidth - rect.right) + 'px';
+  const zr = _zoomRatio();
+  dd.style.right = ((window.innerWidth - rect.right) / zr) + 'px';
   dd.style.top = '-9999px';
   dd.style.display = 'block';
   const ddRect = dd.getBoundingClientRect();
   if (rect.bottom + 2 + ddRect.height > window.innerHeight) {
-    dd.style.top = Math.max(2, rect.top - ddRect.height - 2) + 'px';
+    dd.style.top = (Math.max(2, rect.top - ddRect.height - 2) / zr) + 'px';
   } else {
-    dd.style.top = (rect.bottom + 2) + 'px';
+    dd.style.top = ((rect.bottom + 2) / zr) + 'px';
   }
 
   function close() { dd.remove(); }

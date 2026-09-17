@@ -138,20 +138,31 @@ function _ensurePopup(textarea) {
   return el;
 }
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect() (post-zoom/rendered pixels,
+// matching window.innerWidth/innerHeight) from any `.style.*` assignment
+// (pre-zoom/layout pixels). Divide a post-zoom value by this ratio right
+// before writing it into style.left/top/bottom/width/maxHeight.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 function _position(popup, textarea) {
   const r = textarea.getBoundingClientRect();
+  const zr = _zoomRatio();
   const maxH = Math.min(window.innerHeight * 0.5, 360);
-  popup.style.maxHeight = maxH + 'px';
+  popup.style.maxHeight = (maxH / zr) + 'px';
   // Anchor above the textarea, left-aligned with it
-  popup.style.left = Math.round(r.left) + 'px';
-  popup.style.width = Math.max(280, Math.round(Math.min(r.width, 520))) + 'px';
+  popup.style.left = (Math.round(r.left) / zr) + 'px';
+  popup.style.width = (Math.max(280, Math.round(Math.min(r.width, 520))) / zr) + 'px';
   // Place above when there's enough room, otherwise below.
   const aboveSpace = r.top;
   if (aboveSpace > maxH + 20) {
-    popup.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+    popup.style.bottom = ((window.innerHeight - r.top + 6) / zr) + 'px';
     popup.style.top = '';
   } else {
-    popup.style.top = (r.bottom + 6) + 'px';
+    popup.style.top = ((r.bottom + 6) / zr) + 'px';
     popup.style.bottom = '';
   }
 }

@@ -76,12 +76,16 @@ async function _openMobileCropper(file) {
     let drag = null;
 
     function applyCrop() {
+      // r/pr (getBoundingClientRect) are post-zoom pixels; box.style.* is
+      // interpreted pre-zoom — the "Larger" text-size setting's CSS `zoom`
+      // splits these, so divide by the ratio right before the style write.
       const r = img.getBoundingClientRect();
       const pr = overlay.querySelector('.attach-crop-stage').getBoundingClientRect();
-      box.style.left = (r.left - pr.left + crop.x * r.width) + 'px';
-      box.style.top = (r.top - pr.top + crop.y * r.height) + 'px';
-      box.style.width = (crop.w * r.width) + 'px';
-      box.style.height = (crop.h * r.height) + 'px';
+      const zr = (() => { const w = document.documentElement.offsetWidth; return w ? window.innerWidth / w : 1; })();
+      box.style.left = ((r.left - pr.left + crop.x * r.width) / zr) + 'px';
+      box.style.top = ((r.top - pr.top + crop.y * r.height) / zr) + 'px';
+      box.style.width = ((crop.w * r.width) / zr) + 'px';
+      box.style.height = ((crop.h * r.height) / zr) + 'px';
     }
     function clampCrop() {
       crop.w = Math.max(0.12, Math.min(1, crop.w));

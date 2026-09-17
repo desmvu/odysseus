@@ -58,8 +58,9 @@ export function wireSliderUx({ registerDocClickAway }) {
     const minX = sliderRect.left + 8;
     const maxX = sliderRect.right - 8;
     const x = Math.max(minX, Math.min(maxX, cursorX));
-    sliderBubble.style.left = x + 'px';
-    sliderBubble.style.top  = (sliderRect.top - 8) + 'px';
+    const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    sliderBubble.style.left = (x / zr) + 'px';
+    sliderBubble.style.top  = ((sliderRect.top - 8) / zr) + 'px';
   }
   function showSliderBubble(slider, e) {
     if (sliderBubble.parentElement !== document.body) document.body.appendChild(sliderBubble);

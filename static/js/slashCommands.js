@@ -24,6 +24,20 @@ import { EVAL_PROMPTS } from './compare/index.js';
 import { PROVIDER_DEVICE_FLOWS, formatDeviceFlowError, runProviderDeviceFlow } from './providerDeviceFlow.js';
 import { getSettings } from './appConfig.js';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits measurement into two incompatible pixel spaces in
+// Chromium: getBoundingClientRect() reports POST-zoom/rendered pixels —
+// matching window.innerWidth/innerHeight — while offsetWidth/offsetHeight
+// and any `element.style.*` assignment are PRE-zoom/layout pixels. At zoom 1
+// (Default text size) the two coincide. The tour halo/tooltip positioning
+// below measures a target with getBoundingClientRect() and writes the
+// result straight into style.top/left/width/height — divide by this ratio
+// immediately before that write.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 // ── Module state ──────────────────────────────────────────────────────
 
 let API_BASE = '';
@@ -2211,10 +2225,18 @@ async function _cmdDemo(args, ctx) {
     // Remove old arrow
     tooltip.querySelector('.tour-arrow')?.remove();
     const r = target.getBoundingClientRect();
+    // ttW is an assumed (not measured) width, so it carries no inherent
+    // pre/post-zoom tag — treat it as post-zoom to match r.*, the space
+    // this whole positioning calc runs in. ttH IS a real measurement
+    // (offsetHeight, pre-zoom) mixed with r.* below — convert it to
+    // post-zoom too. Every top/left/arrow-offset write at the bottom
+    // converts back to pre-zoom, since style.* and cssText are both
+    // interpreted in that space.
+    const zr = _zoomRatio();
     const ttW = 280;
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const ttH = tooltip.offsetHeight || 100;
+    const ttH = (tooltip.offsetHeight || 100) * zr;
 
     const arrow = document.createElement('div');
     arrow.className = 'tour-arrow';
@@ -2244,16 +2266,16 @@ async function _cmdDemo(args, ctx) {
     if (left < 10) left = 10;
     if (top < 10) top = 10;
 
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
 
     // Position arrow pointing at target
     if (arrowSide === 'top') {
-      arrow.style.cssText = `top:-6px;left:${Math.min(Math.max(r.left + r.width / 2 - left - 5, 10), ttW - 20)}px;border-right:none;border-bottom:none`;
+      arrow.style.cssText = `top:-6px;left:${Math.min(Math.max(r.left + r.width / 2 - left - 5, 10), ttW - 20) / zr}px;border-right:none;border-bottom:none`;
     } else if (arrowSide === 'bottom') {
-      arrow.style.cssText = `bottom:-6px;left:${Math.min(Math.max(r.left + r.width / 2 - left - 5, 10), ttW - 20)}px;border-left:none;border-top:none`;
+      arrow.style.cssText = `bottom:-6px;left:${Math.min(Math.max(r.left + r.width / 2 - left - 5, 10), ttW - 20) / zr}px;border-left:none;border-top:none`;
     } else {
-      arrow.style.cssText = `left:-6px;top:${Math.min(Math.max(r.top + r.height / 2 - top - 5, 10), ttH - 20)}px;border-right:none;border-top:none`;
+      arrow.style.cssText = `left:-6px;top:${Math.min(Math.max(r.top + r.height / 2 - top - 5, 10), ttH - 20) / zr}px;border-right:none;border-top:none`;
     }
     tooltip.appendChild(arrow);
     tooltip.style.visibility = '';
@@ -2290,10 +2312,11 @@ async function _cmdDemo(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     window.addEventListener('resize', update);
@@ -2609,10 +2632,11 @@ async function _cmdTourCompare(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     window.addEventListener('resize', update);
@@ -2643,8 +2667,12 @@ async function _cmdTourCompare(args, ctx) {
     const r = target.getBoundingClientRect();
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; r/window.innerWidth/Height are
+    // post-zoom — convert tw/th to post-zoom so this math stays in one
+    // space, then convert the final top/left back for the style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     const gap = 12;
     let top, left;
     if (r.bottom + gap + th < window.innerHeight - 10) {
@@ -2661,8 +2689,8 @@ async function _cmdTourCompare(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -2890,10 +2918,11 @@ async function _cmdTourCookbook(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     window.addEventListener('resize', update);
@@ -2920,14 +2949,19 @@ async function _cmdTourCookbook(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       // Centered horizontally, sitting in the upper third of the viewport.
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -2948,8 +2982,8 @@ async function _cmdTourCookbook(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -3119,10 +3153,11 @@ async function _cmdTourTheme(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     window.addEventListener('resize', update);
@@ -3149,13 +3184,18 @@ async function _cmdTourTheme(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -3176,8 +3216,8 @@ async function _cmdTourTheme(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -3363,10 +3403,11 @@ async function _cmdTourSettings(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     // Track the modal-enter scale animation (see task-tour notes).
@@ -3401,13 +3442,18 @@ async function _cmdTourSettings(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -3428,8 +3474,8 @@ async function _cmdTourSettings(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -3596,10 +3642,11 @@ async function _cmdTourGallery(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     const _tStart = performance.now();
@@ -3633,13 +3680,18 @@ async function _cmdTourGallery(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -3660,8 +3712,8 @@ async function _cmdTourGallery(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -3809,10 +3861,11 @@ async function _cmdTourNotes(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     const _tStart = performance.now();
@@ -3846,13 +3899,18 @@ async function _cmdTourNotes(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -3873,8 +3931,8 @@ async function _cmdTourNotes(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -4009,10 +4067,11 @@ async function _cmdTourBrain(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     const _tStart = performance.now();
@@ -4046,13 +4105,18 @@ async function _cmdTourBrain(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -4073,8 +4137,8 @@ async function _cmdTourBrain(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -4223,10 +4287,11 @@ async function _runTaskTour(steps, doneText, opts) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top = (r.top - 4) + 'px';
-      halo.style.left = (r.left - 4) + 'px';
-      halo.style.width = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top = ((r.top - 4) / zr) + 'px';
+      halo.style.left = ((r.left - 4) / zr) + 'px';
+      halo.style.width = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     // The tasks modal-content runs a 250ms `modal-enter` scale animation
@@ -4259,8 +4324,12 @@ async function _runTaskTour(steps, doneText, opts) {
   function positionTooltip(target) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; r/window.innerWidth/Height are
+    // post-zoom — convert tw/th to post-zoom so this math stays in one
+    // space, then convert the final top/left back for the style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     const r = target.getBoundingClientRect();
     const gap = 12;
     let top = r.bottom + gap;
@@ -4269,8 +4338,8 @@ async function _runTaskTour(steps, doneText, opts) {
     if (top < 10) top = 10;
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
   function showStep(step, i) {
@@ -4454,10 +4523,11 @@ async function _cmdTourResearch(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     window.addEventListener('resize', update);
@@ -4484,13 +4554,18 @@ async function _cmdTourResearch(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -4511,8 +4586,8 @@ async function _cmdTourResearch(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -4668,10 +4743,11 @@ async function _cmdTourLibrary(args, ctx) {
     document.body.appendChild(halo);
     const update = () => {
       const r = target.getBoundingClientRect();
-      halo.style.top    = (r.top - 4) + 'px';
-      halo.style.left   = (r.left - 4) + 'px';
-      halo.style.width  = (r.width + 8) + 'px';
-      halo.style.height = (r.height + 8) + 'px';
+      const zr = _zoomRatio();
+      halo.style.top    = ((r.top - 4) / zr) + 'px';
+      halo.style.left   = ((r.left - 4) / zr) + 'px';
+      halo.style.width  = ((r.width + 8) / zr) + 'px';
+      halo.style.height = ((r.height + 8) / zr) + 'px';
     };
     update();
     window.addEventListener('resize', update);
@@ -4698,13 +4774,18 @@ async function _cmdTourLibrary(args, ctx) {
   function _positionTooltip(target, placement) {
     tooltip.style.visibility = 'hidden';
     tooltip.style.display = '';
-    const tw = tooltip.offsetWidth || 260;
-    const th = tooltip.offsetHeight || 100;
+    // offsetWidth/Height are pre-zoom; window.innerWidth/Height and the
+    // getBoundingClientRect() below are post-zoom — convert tw/th to
+    // post-zoom so this math stays in one space, then convert the final
+    // top/left back for each style write.
+    const zr = _zoomRatio();
+    const tw = (tooltip.offsetWidth || 260) * zr;
+    const th = (tooltip.offsetHeight || 100) * zr;
     if (placement === 'center-above') {
       const top = Math.max(10, window.innerHeight * 0.32 - th / 2);
       const left = Math.max(10, window.innerWidth / 2 - tw / 2);
-      tooltip.style.top = top + 'px';
-      tooltip.style.left = left + 'px';
+      tooltip.style.top = (top / zr) + 'px';
+      tooltip.style.left = (left / zr) + 'px';
       tooltip.style.visibility = '';
       return;
     }
@@ -4725,8 +4806,8 @@ async function _cmdTourLibrary(args, ctx) {
     if (left + tw > window.innerWidth - 10) left = window.innerWidth - tw - 10;
     if (left < 10) left = 10;
     if (top < 10) top = 10;
-    tooltip.style.top = top + 'px';
-    tooltip.style.left = left + 'px';
+    tooltip.style.top = (top / zr) + 'px';
+    tooltip.style.left = (left / zr) + 'px';
     tooltip.style.visibility = '';
   }
 
@@ -4956,10 +5037,11 @@ function _showSetupSpotlight(selector, duration = 1800, options = {}) {
   document.body.appendChild(halo);
   const update = () => {
     const r = target.getBoundingClientRect();
-    halo.style.top = (r.top - 5) + 'px';
-    halo.style.left = (r.left - 5) + 'px';
-    halo.style.width = (r.width + 10) + 'px';
-    halo.style.height = (r.height + 10) + 'px';
+    const zr = _zoomRatio();
+    halo.style.top = ((r.top - 5) / zr) + 'px';
+    halo.style.left = ((r.left - 5) / zr) + 'px';
+    halo.style.width = ((r.width + 10) / zr) + 'px';
+    halo.style.height = ((r.height + 10) / zr) + 'px';
   };
   update();
   window.addEventListener('resize', update);
