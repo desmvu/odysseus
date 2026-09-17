@@ -1854,7 +1854,12 @@ function _gpuPreflightIssues(data, selected) {
   rows.forEach(g => {
     const idx = Number(g?.index);
     if (selected && !selected.has(idx)) return;
-    const procs = Array.isArray(g?.processes) ? g.processes : [];
+    // Odysseus's own process (tagged by the backend via os.getpid()) is never
+    // "existing load competing for this launch" — it's the app itself, not a
+    // rival serve. Filtering it here (rather than dropping it server-side)
+    // keeps /api/cookbook/gpus a complete, honest picture of the GPU for any
+    // other caller.
+    const procs = (Array.isArray(g?.processes) ? g.processes : []).filter(p => !p?.is_self);
     if (procs.length) {
       procs.slice(0, 3).forEach(p => {
         const name = String(p?.name || 'process').split(/[\\/]/).pop();

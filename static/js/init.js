@@ -188,6 +188,19 @@ document.addEventListener('DOMContentLoaded', markComposerUserEdited, { once: tr
   const chatBar = document.querySelector('.chat-input-bar');
   const attachStrip = document.getElementById('attach-strip');
   const chatContainer = document.getElementById('chat-container');
+  // The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+  // `zoom`, which splits measurement into two incompatible pixel spaces in
+  // Chromium: getBoundingClientRect() reports POST-zoom/rendered pixels —
+  // matching window.innerHeight — while a CSS custom property consumed by an
+  // authored declaration (here, `bottom: var(--composer-clearance)` in
+  // style.css) is interpreted in PRE-zoom/layout pixels, same as any other
+  // CSS length in a stylesheet. At zoom 1 (Default text size) the two
+  // coincide; at 1.25 a post-zoom clearance value renders 1.25x too large,
+  // pushing the minimized-dock chips well above the composer.
+  const _zoomRatio = () => {
+    const w = document.documentElement.offsetWidth;
+    return w ? window.innerWidth / w : 1;
+  };
   const _syncComposerClearance = () => {
     let top = window.innerHeight;
     for (const el of [attachStrip, chatBar]) {
@@ -195,7 +208,7 @@ document.addEventListener('DOMContentLoaded', markComposerUserEdited, { once: tr
       const rect = el.getBoundingClientRect();
       if (rect.height > 0) top = Math.min(top, rect.top);
     }
-    const clearance = Math.max(12, Math.ceil(window.innerHeight - top + 8));
+    const clearance = Math.max(12, Math.ceil((window.innerHeight - top + 8) / _zoomRatio()));
     root.style.setProperty('--composer-clearance', clearance + 'px');
   };
   requestAnimationFrame(_syncComposerClearance);

@@ -106,6 +106,15 @@ RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp /app/llama.cpp \
     && cmake -B /app/llama.cpp/build -S /app/llama.cpp -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /app/llama.cpp/build --config Release -j$(nproc)
 
+# Put the prebuilt binary on PATH. Without this, `shutil.which("llama-server")`
+# (routes/shell_routes.py, routes/cookbook_routes.py) can't find it: Cookbook's
+# dependency check then falls back to an in-process `import llama_cpp` GPU probe
+# that permanently pins a CUDA context in the main app process (shows up as a
+# "python3" GPU-preflight warning that never goes away), and a serve launch
+# falls back to the ~15-20min from-source build bootstrap instead of using the
+# binary that's already sitting right here.
+ENV PATH="/app/llama.cpp/build/bin:${PATH}"
+
 # python-magic powers content-based MIME sniffing in src/upload_handler.py.
 # Image-only (not in requirements.txt) because it needs the libmagic1 system
 # lib installed above; see the apt note near the top of this stage.

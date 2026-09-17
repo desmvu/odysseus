@@ -82,6 +82,20 @@ function _emitModalOpened(id, modal) {
   } catch (_) {}
 }
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits measurement into two incompatible pixel spaces in
+// Chromium: getBoundingClientRect() reports POST-zoom/rendered pixels —
+// matching window.innerWidth/innerHeight — while offsetWidth/offsetHeight,
+// and any `element.style.*` assignment, are interpreted in PRE-zoom/layout
+// pixels. At zoom 1 (Default text size) the two coincide. Below, a height is
+// captured via getBoundingClientRect() (post-zoom) and later reapplied via
+// style.minHeight (pre-zoom) — divide by this ratio at capture time so the
+// stored value is zoom-independent, matching what style.minHeight expects.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 function _captureRestoreHeight(modal, state) {
   if (!modal || !state) return;
   const content = modal.querySelector('.modal-content');
@@ -95,18 +109,19 @@ function _captureRestoreHeight(modal, state) {
   }
   const rect = content.getBoundingClientRect();
   if (!rect || rect.height < 120) return;
-  const maxHeight = Math.max(180, window.innerHeight - 24);
+  const maxHeight = Math.max(180, document.documentElement.offsetHeight - 24);
   const minHeight = modal.id === 'email-lib-modal' && window.innerWidth > 768
     ? Math.min(560, maxHeight)
     : 0;
-  state.restoreMinHeight = `${Math.round(Math.max(minHeight, Math.min(rect.height, maxHeight)))}px`;
+  const heightPreZoom = rect.height / _zoomRatio();
+  state.restoreMinHeight = `${Math.round(Math.max(minHeight, Math.min(heightPreZoom, maxHeight)))}px`;
 }
 
 function _applyRestoreHeight(modal, state) {
   if (!modal || !state?.restoreMinHeight) return;
   const content = modal.querySelector('.modal-content');
   if (!content) return;
-  const maxHeight = Math.max(180, window.innerHeight - 24);
+  const maxHeight = Math.max(180, document.documentElement.offsetHeight - 24);
   const requested = parseInt(state.restoreMinHeight, 10);
   const minHeight = modal.id === 'email-lib-modal' && window.innerWidth > 768
     ? Math.min(560, maxHeight)
@@ -159,6 +174,25 @@ function _ensureDock() {
   document.body.appendChild(dock);
   _loadDockState();
   return dock;
+}
+
+// Re-evaluate the dock's position whenever the welcome screen is entered or
+// left — a chip minimized during an active chat (custom position, fine
+// there) can otherwise sit at that same stale position after navigating
+// back to a fresh/welcome chat, since nothing about that navigation goes
+// through minimize/restore/close to re-trigger _applyDockPos itself.
+{
+  const chatContainer = document.getElementById('chat-container');
+  if (chatContainer && typeof MutationObserver !== 'undefined') {
+    let _wasWelcomeActive = chatContainer.classList.contains('welcome-active');
+    new MutationObserver(() => {
+      const isWelcomeActive = chatContainer.classList.contains('welcome-active');
+      if (isWelcomeActive === _wasWelcomeActive) return;
+      _wasWelcomeActive = isWelcomeActive;
+      const dock = document.getElementById('minimized-dock');
+      if (dock) _applyDockPos(dock);
+    }).observe(chatContainer, { attributes: true, attributeFilter: ['class'] });
+  }
 }
 
 // Manual order users can rearrange via drag.
@@ -219,10 +253,14 @@ function _loadDockState() {
     }
     if (dp && Number.isFinite(dp.left) && Number.isFinite(dp.top)) {
       // Clamp into the current viewport so a saved spot from a larger
-      // window doesn't strand the dock off-screen.
+      // window doesn't strand the dock off-screen. dp.left/top are pre-zoom
+      // (same space style.left/top read back), so clamp against the pre-zoom
+      // viewport size — document.documentElement.offsetWidth/Height — not
+      // window.innerWidth/Height (post-zoom under the "Larger" text-size
+      // setting's CSS zoom, which would wrongly permit/reject positions).
       _dockPos = {
-        left: Math.max(8, Math.min(window.innerWidth - 60, dp.left)),
-        top:  Math.max(8, Math.min(window.innerHeight - 40, dp.top)),
+        left: Math.max(8, Math.min(document.documentElement.offsetWidth - 60, dp.left)),
+        top:  Math.max(8, Math.min(document.documentElement.offsetHeight - 40, dp.top)),
       };
     }
   } catch {}
@@ -233,6 +271,26 @@ function _loadDockState() {
 // which would otherwise drop the position the moment the dock clears.
 function _applyDockPos(dock) {
   if (!_dockPos) return;
+  // The welcome screen has its own fixed, app-controlled layout (title,
+  // subtitle, tip, incognito toggle, all centered around the composer) — a
+  // custom dock position the user dragged to while ACTIVELY CHATTING (e.g.
+  // out of the way of message bubbles) has no relationship to that layout
+  // and can land on top of the welcome branding. With only one chip ever
+  // in the dock, even a slightly-off-target click while trying to restore
+  // it counts as a whole-dock drag (see dragMode = 'move-dock' above) and
+  // permanently persists a position, so this is easy to hit by accident.
+  // Falling back to the CSS default (bottom: var(--composer-clearance)) on
+  // the welcome screen keeps that promise without discarding the position
+  // the user actually wanted for normal chat use.
+  const chatContainer = document.getElementById('chat-container');
+  if (chatContainer && chatContainer.classList.contains('welcome-active')) {
+    dock.style.left = '';
+    dock.style.top = '';
+    dock.style.right = '';
+    dock.style.bottom = '';
+    dock.style.transform = '';
+    return;
+  }
   dock.style.left = `${_dockPos.left}px`;
   dock.style.top = `${_dockPos.top}px`;
   dock.style.right = 'auto';
@@ -879,8 +937,13 @@ function _wireChipDrag(chip, dock) {
       // Move-dock: reposition the entire dock element. On touch, the whole
       // chain also interacts with the trash zone — drop on X to close every
       // chip in the dock.
-      let newLeft = Math.max(8, Math.min(window.innerWidth  - dock.offsetWidth  - 8, dockStartLeft + dx));
-      let newTop  = Math.max(8, Math.min(window.innerHeight - dock.offsetHeight - 8, dockStartTop  + dy));
+      // dockStartLeft/Top (getBoundingClientRect) and dx/dy (mouse deltas)
+      // are post-zoom — bound against the dock's own post-zoom size, not
+      // offsetWidth/Height (pre-zoom, would give a wrongly-placed clamp
+      // under the "Larger" text-size setting's CSS zoom).
+      const dockRectNow = dock.getBoundingClientRect();
+      let newLeft = Math.max(8, Math.min(window.innerWidth  - dockRectNow.width  - 8, dockStartLeft + dx));
+      let newTop  = Math.max(8, Math.min(window.innerHeight - dockRectNow.height - 8, dockStartTop  + dy));
 
       if (trashZone) {
         const tz = trashZone.getBoundingClientRect();
@@ -903,12 +966,19 @@ function _wireChipDrag(chip, dock) {
         }
       }
 
-      dock.style.left = `${newLeft}px`;
-      dock.style.top  = `${newTop}px`;
+      // newLeft/newTop are still post-zoom here — convert to pre-zoom for the
+      // style write, and persist the pre-zoom (zoom-independent) value so a
+      // position saved at one text-size setting doesn't render wrong at
+      // another (including Default, where this bug was invisible).
+      const _zr = _zoomRatio();
+      const leftPreZoom = newLeft / _zr;
+      const topPreZoom = newTop / _zr;
+      dock.style.left = `${leftPreZoom}px`;
+      dock.style.top  = `${topPreZoom}px`;
       dock.style.right = 'auto';
       dock.style.bottom = 'auto';
       dock.style.transform = 'none';
-      _dockPos = { left: newLeft, top: newTop };
+      _dockPos = { left: leftPreZoom, top: topPreZoom };
       _saveDockState();
     }
   };

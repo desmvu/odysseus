@@ -13,6 +13,20 @@ import { openCookbookDependencies } from './cookbook-diagnosis.js';
 import { _hwfitCache } from './cookbook-hwfit.js';
 import { topPortalZ } from './toolWindowZOrder.js';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits measurement into two incompatible pixel spaces in
+// Chromium: getBoundingClientRect() reports POST-zoom/rendered pixels —
+// matching window.innerWidth/innerHeight — while offsetWidth/offsetHeight/
+// scrollHeight, and any `element.style.*` assignment, are interpreted in
+// PRE-zoom/layout pixels. At zoom 1 (Default text size) the two coincide.
+// The dropdown/popup positioning below measures a button/anchor with
+// getBoundingClientRect() and writes the result straight into style.left/
+// top/right — divide by this ratio immediately before that write.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 // Shared state/functions injected by init()
 let _envState;
 let _sshCmd;
@@ -1308,7 +1322,8 @@ function _rerenderCachedModels() {
       cancelDiv.addEventListener('click', () => { closeDropdown(); });
       dropdown.appendChild(cancelDiv);
       const rect = btn.getBoundingClientRect();
-      dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};visibility:hidden;top:0;right:${window.innerWidth-rect.right}px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.3);font-size:12px;`;
+      const _zr1 = _zoomRatio();
+      dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};visibility:hidden;top:0;right:${(window.innerWidth-rect.right)/_zr1}px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.3);font-size:12px;`;
       document.body.appendChild(dropdown);
       // Clamp into the VISIBLE area (visualViewport, not innerHeight — they differ
       // on mobile under the dynamic toolbar). Flip above the button if there's no
@@ -1318,14 +1333,17 @@ function _rerenderCachedModels() {
         const vv = window.visualViewport;
         const viewTop = vv ? vv.offsetTop : 0;
         const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-        const dh = dropdown.offsetHeight;
+        // dropdown.offsetHeight is pre-zoom; rect/viewBottom are post-zoom —
+        // convert dh to post-zoom so this clamp math stays in one space,
+        // then convert the final `top` back to pre-zoom for the style write.
+        const dh = dropdown.offsetHeight * _zr1;
         const mm = 8;
         let top = rect.bottom + 2;
         if (top + dh > viewBottom - mm) {
           const above = rect.top - 2 - dh;
           top = above >= viewTop + mm ? above : Math.max(viewTop + mm, viewBottom - dh - mm);
         }
-        dropdown.style.top = top + 'px';
+        dropdown.style.top = (top / _zr1) + 'px';
         dropdown.style.visibility = '';
       }
       closeDropdown = bindMenuDismiss(dropdown, () => { dropdown.remove(); btn.classList.remove('cookbook-menu-active'); }, (ev) => !dropdown.contains(ev.target) && ev.target !== btn);
@@ -1838,9 +1856,14 @@ function _rerenderCachedModels() {
       // (See project_skills_expand_firefox memory note.)
       requestAnimationFrame(() => {
         try {
-          const _itemH = Math.max(item.scrollHeight, item.getBoundingClientRect().height);
+          // scrollHeight is pre-zoom; getBoundingClientRect().height is
+          // post-zoom — convert the latter before comparing/assigning, or
+          // Math.max almost always picks the post-zoom (larger) number and
+          // renders 1.25x too tall under the "Larger" text-size setting.
+          const _zr = _zoomRatio();
+          const _itemH = Math.max(item.scrollHeight, item.getBoundingClientRect().height / _zr);
           if (_itemH > 0) item.style.maxHeight = _itemH + 'px';
-          const _listH = Math.max(list.scrollHeight, list.getBoundingClientRect().height);
+          const _listH = Math.max(list.scrollHeight, list.getBoundingClientRect().height / _zr);
           if (_listH > 0) list.style.maxHeight = _listH + 'px';
           list.style.minHeight = _listH + 'px';
         } catch {}
@@ -2616,13 +2639,17 @@ function _rerenderCachedModels() {
         document.body.appendChild(dropdown);
         // Clamp into the viewport using the menu's real size (both axes); flip
         // above the toggle if there isn't room below. Right-align to the anchor.
-        const w = dropdown.offsetWidth, h = dropdown.offsetHeight;
+        // offsetWidth/Height are pre-zoom; rect/window.innerWidth/Height are
+        // post-zoom — convert w/h to post-zoom so this math stays in one
+        // space, then convert the final left/top back for the style write.
+        const _zr2 = _zoomRatio();
+        const w = dropdown.offsetWidth * _zr2, h = dropdown.offsetHeight * _zr2;
         let left = Math.min(rect.right - w, window.innerWidth - w - 8);
         left = Math.max(8, left);
         let top = rect.bottom + 6;
         if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - 6 - h);
-        dropdown.style.left = `${left}px`;
-        dropdown.style.top = `${top}px`;
+        dropdown.style.left = `${left / _zr2}px`;
+        dropdown.style.top = `${top / _zr2}px`;
         dropdown.style.visibility = '';
         closeMenu = bindMenuDismiss(dropdown, () => { dropdown.remove(); anchor.classList.remove('cookbook-menu-active'); }, (ev) => !dropdown.contains(ev.target) && ev.target !== anchor && !anchor.contains(ev.target));
       }
@@ -2722,22 +2749,23 @@ function _rerenderCachedModels() {
           menu.appendChild(mk('Clear Server', 'cookbook-dropdown-danger', () => _clearBtn?.click()));
           menu.appendChild(mk('Cancel', 'dropdown-cancel-mobile', () => {}));
           const r = _launchMoreBtn.getBoundingClientRect();
+          const _zr3 = _zoomRatio();
           menu.style.position = 'fixed';
           menu.style.zIndex = String(topPortalZ());
-          menu.style.right = (window.innerWidth - r.right) + 'px';
+          menu.style.right = ((window.innerWidth - r.right) / _zr3) + 'px';
           document.body.appendChild(menu);
           {
             const vv = window.visualViewport;
             const viewTop = vv ? vv.offsetTop : 0;
             const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-            const mh = menu.offsetHeight;
+            const mh = menu.offsetHeight * _zr3;
             const m = 8;
             let top = r.bottom + 4;
             if (top + mh > viewBottom - m) {
               const above = r.top - 4 - mh;
               top = above >= viewTop + m ? above : Math.max(viewTop + m, viewBottom - mh - m);
             }
-            menu.style.top = top + 'px';
+            menu.style.top = (top / _zr3) + 'px';
           }
           const _scrollClose = () => closeMenu();
           closeMenu = bindMenuDismiss(menu, () => { menu.remove(); window.removeEventListener('scroll', _scrollClose, true); }, (e) => !menu.contains(e.target) && e.target !== _launchMoreBtn);
@@ -2769,9 +2797,10 @@ function _rerenderCachedModels() {
           menu.appendChild(mk('Probe GPUs', '', () => _probeBtn?.click()));
           menu.appendChild(mk('Cancel', 'dropdown-cancel-mobile', () => {}));
           const r = _splitArrow.getBoundingClientRect();
+          const _zr4 = _zoomRatio();
           menu.style.position = 'fixed';
           menu.style.zIndex = String(topPortalZ());
-          menu.style.right = (window.innerWidth - r.right) + 'px';
+          menu.style.right = ((window.innerWidth - r.right) / _zr4) + 'px';
           document.body.appendChild(menu);
           // Default open BELOW, but if there's no room (esp. on mobile where
           // the arrow sits near the bottom of the modal) flip ABOVE so the
@@ -2780,14 +2809,14 @@ function _rerenderCachedModels() {
             const vv = window.visualViewport;
             const viewTop = vv ? vv.offsetTop : 0;
             const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-            const mh = menu.offsetHeight;
+            const mh = menu.offsetHeight * _zr4;
             const m = 8;
             let top = r.bottom + 4;
             if (top + mh > viewBottom - m) {
               const above = r.top - 4 - mh;
               top = above >= viewTop + m ? above : Math.max(viewTop + m, viewBottom - mh - m);
             }
-            menu.style.top = top + 'px';
+            menu.style.top = (top / _zr4) + 'px';
           }
           // Close on outside click or Escape (via the registry); also dismiss
           // on scroll since the popup is fixed-positioned to the arrow.
@@ -2878,18 +2907,21 @@ function _rerenderCachedModels() {
           // popup stays fully visible — GPU buttons near the right edge
           // of the modal previously anchored the popup mostly off-screen.
           const r = anchorBtn.getBoundingClientRect();
+          const _zr5 = _zoomRatio();
           const vw = window.innerWidth  || document.documentElement.clientWidth;
           const vh = window.innerHeight || document.documentElement.clientHeight;
-          const pw = popup.offsetWidth  || 320;
-          const ph = popup.offsetHeight || 200;
+          // offsetWidth/Height are pre-zoom; r/vw/vh are post-zoom — convert
+          // pw/ph to post-zoom so this clamp math stays in one space.
+          const pw = (popup.offsetWidth  || 320) * _zr5;
+          const ph = (popup.offsetHeight || 200) * _zr5;
           let left = r.left;
           let top  = r.bottom + 4;
           // Push left so the popup doesn't overflow the right edge.
           if (left + pw > vw - 8) left = Math.max(8, vw - pw - 8);
           // If there isn't room below, render above the button instead.
           if (top + ph > vh - 8) top = Math.max(8, r.top - ph - 4);
-          popup.style.left = `${left}px`;
-          popup.style.top  = `${top}px`;
+          popup.style.left = `${left / _zr5}px`;
+          popup.style.top  = `${top / _zr5}px`;
 
           popup.querySelector('.cookbook-gpu-popup-close')?.addEventListener('click', _closeProbePopup);
           popup.querySelectorAll('.cookbook-gpu-kill').forEach(btn => {
@@ -3878,7 +3910,10 @@ async function _deleteCachedModel(repo, itemEl, skipConfirm = false, model = nul
     } else if (itemEl) {
       itemEl.querySelector('.cookbook-delete-overlay')?.remove();
       itemEl.style.transition = 'opacity 0.24s ease, transform 0.24s ease, max-height 0.28s ease, padding 0.28s ease, margin 0.28s ease';
-      itemEl.style.maxHeight = `${Math.max(itemEl.getBoundingClientRect().height, itemEl.scrollHeight)}px`;
+      // getBoundingClientRect().height is post-zoom, scrollHeight is
+      // pre-zoom — convert before comparing so this collapse animation
+      // starts from the right height under the "Larger" text-size setting.
+      itemEl.style.maxHeight = `${Math.max(itemEl.getBoundingClientRect().height / _zoomRatio(), itemEl.scrollHeight)}px`;
       itemEl.style.overflow = 'hidden';
       itemEl.style.opacity = '0';
       itemEl.style.transform = 'translateX(-10px) scale(0.985)';

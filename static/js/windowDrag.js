@@ -54,6 +54,20 @@ function _leftNavWidth() {
   return rail + sb;
 }
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits measurement into two incompatible pixel spaces in
+// Chromium: getBoundingClientRect() (and mouse clientX/clientY) report
+// POST-zoom/rendered pixels — matching window.innerWidth/innerHeight — while
+// offsetWidth/offsetHeight, and any `element.style.left/top/width/height`
+// assignment, are interpreted in PRE-zoom/layout pixels. At zoom 1 (Default
+// text size) the two coincide, which is why this was invisible until this
+// setting shipped. Divide a post-zoom number by this ratio immediately
+// before writing it into a style property.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 export function makeWindowDraggable(modal, options = {}) {
   const content = options.content;
   const header = options.header;
@@ -165,9 +179,13 @@ export function makeWindowDraggable(modal, options = {}) {
     // Pin position so the drag follows the cursor instead of fighting a
     // centering transform / margin. Inline styles win unless CSS uses
     // !important (the fullscreen rules do, by design).
+    // startLeft/startTop come from getBoundingClientRect() (post-zoom) but
+    // style.left/top are read back pre-zoom — convert here or the window
+    // visually jumps by the zoom factor the instant a drag starts.
+    const _zr0 = _zoomRatio();
     content.style.position = 'fixed';
-    content.style.left = startLeft + 'px';
-    content.style.top = startTop + 'px';
+    content.style.left = (startLeft / _zr0) + 'px';
+    content.style.top = (startTop / _zr0) + 'px';
     content.style.transform = 'none';
     content.style.margin = '0';
   };
@@ -227,12 +245,29 @@ export function makeWindowDraggable(modal, options = {}) {
       }
       return;
     }
-    // Windowed: just follow the cursor.
+    // Windowed: just follow the cursor, clamped to the viewport. Upstream
+    // gap (github.com/odysseus-dev/odysseus PR #1935, never merged — closed
+    // only for missing a required screenshot, not on technical merit): this
+    // previously set left/top with no bound at all, so a window dragged past
+    // an edge could end up fully or partially off-screen, with no way to
+    // drag it back (its header — the only drag handle — off-screen too).
     if (Math.abs(cx - startX) > MOVE_THRESHOLD || Math.abs(cy - startY) > MOVE_THRESHOLD) {
       movedDuringDrag = true;
     }
-    content.style.left = (startLeft + cx - startX) + 'px';
-    content.style.top = (startTop + cy - startY) + 'px';
+    // Everything here (startLeft/Top from getBoundingClientRect(), cx/cy from
+    // the mouse event, window.innerWidth/innerHeight) is consistently
+    // post-zoom — only the final style assignment needs converting to the
+    // pre-zoom space style.left/top are interpreted in. Bound against the
+    // content's own post-zoom size (getBoundingClientRect, not offsetWidth/
+    // Height, which is pre-zoom and would give a wrongly-sized clamp here).
+    const zr = _zoomRatio();
+    const contentRect = content.getBoundingClientRect();
+    const maxLeft = Math.max(0, window.innerWidth - contentRect.width);
+    const maxTop = Math.max(0, window.innerHeight - contentRect.height);
+    const newLeft = Math.max(0, Math.min(startLeft + cx - startX, maxLeft));
+    const newTop = Math.max(0, Math.min(startTop + cy - startY, maxTop));
+    content.style.left = (newLeft / zr) + 'px';
+    content.style.top = (newTop / zr) + 'px';
     // Corner guard: in the top fullscreen band the side docks stay OFF, so a
     // top corner only ever snaps to fullscreen — never the corner hybrid.
     const inTopBand = cy <= SNAP_PX;
@@ -330,4 +365,26 @@ export function makeWindowDraggable(modal, options = {}) {
       document.addEventListener('touchcancel', onEnd);
     }, { passive: true });
   }
+
+  // Re-clamp a drag-positioned window when the browser viewport shrinks, so
+  // it doesn't end up off-screen (header included — its only drag handle)
+  // after the user resizes the browser window itself. Skips fullscreen and
+  // docked windows, which are positioned by their own CSS/logic, not by the
+  // left/top this module sets. Same gap as the resize-drag clamping above
+  // (PR #1935) — the browser-level resize case just wasn't covered.
+  window.addEventListener('resize', () => {
+    if (fsClass && modal && modal.classList.contains(fsClass)) return;
+    if (modal && (modal.classList.contains('modal-right-docked') || modal.classList.contains('modal-left-docked'))) return;
+    // style.left/top (curLeft/curTop) are pre-zoom, so clamp against a
+    // pre-zoom viewport size (document.documentElement.offsetWidth/Height),
+    // not window.innerWidth/innerHeight (post-zoom) — no ratio math needed
+    // since both sides of this comparison are already in the same space.
+    const curLeft = parseFloat(content.style.left);
+    const curTop = parseFloat(content.style.top);
+    if (!Number.isFinite(curLeft) && !Number.isFinite(curTop)) return;
+    const maxLeft = Math.max(0, document.documentElement.offsetWidth - content.offsetWidth);
+    const maxTop = Math.max(0, document.documentElement.offsetHeight - content.offsetHeight);
+    content.style.left = Math.max(0, Math.min(curLeft || 0, maxLeft)) + 'px';
+    content.style.top = Math.max(0, Math.min(curTop || 0, maxTop)) + 'px';
+  });
 }

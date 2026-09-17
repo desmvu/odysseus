@@ -25,6 +25,22 @@
 const EDGE = 7;          // px proximity to a border that arms a resize grip
 const MIN_W = 320;       // smallest a window may be dragged to
 const MIN_H = 200;
+
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits measurement into two incompatible pixel spaces in
+// Chromium: getBoundingClientRect() (and mouse clientX/clientY) report
+// POST-zoom/rendered pixels — matching window.innerWidth/innerHeight — while
+// offsetWidth/offsetHeight, and any `element.style.left/top/width/height`
+// assignment, are interpreted in PRE-zoom/layout pixels. At zoom 1 (Default
+// text size) the two coincide, which is why this was invisible until this
+// setting shipped — every resize/restore here computed a rect via
+// getBoundingClientRect() and wrote it straight back via .style, which
+// rendered `zoom` times too big/far on any other scale. Divide a post-zoom
+// number by this ratio immediately before writing it into a style property.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
 // Controls that must keep their own click/drag behaviour even when they sit
 // within EDGE px of the window border (close buttons, sliders, inputs, links).
 const INTERACTIVE = 'button, input, select, textarea, a, [contenteditable=""], [contenteditable="true"]';
@@ -101,15 +117,30 @@ export function makeWindowResizable(content, options = {}) {
     // Pin to fixed with explicit box, same as the drag helper does, so the
     // centering transform / margin stops fighting the new dimensions. Drop the
     // max-width/height caps (e.g. 85vh) so the window can actually grow.
+    const zr = _zoomRatio();
     content.style.position = 'fixed';
     content.style.margin = '0';
     content.style.transform = 'none';
-    content.style.left = r.left + 'px';
-    content.style.top = r.top + 'px';
-    content.style.width = r.width + 'px';
-    content.style.height = r.height + 'px';
-    content.style.maxWidth = 'none';
-    content.style.maxHeight = 'none';
+    // r.left/top/width/height are post-zoom (getBoundingClientRect); style.*
+    // is read back pre-zoom, so this needs the same /zr every other capture->
+    // reapply here does, or the window jumps/balloons by the zoom factor the
+    // instant a resize starts.
+    content.style.left = (r.left / zr) + 'px';
+    content.style.top = (r.top / zr) + 'px';
+    content.style.width = (r.width / zr) + 'px';
+    content.style.height = (r.height / zr) + 'px';
+    // Bound to the viewport instead of clearing entirely — see the matching
+    // note in the restore-on-open block below. This is the OTHER place that
+    // used to strip the cap permanently: merely starting an edge-resize drag
+    // (armed within EDGE=7px of a border, on mousedown alone, before any
+    // actual movement) removed max-height for the rest of the DOM node's
+    // life, so a later modalManager min-height nudge (minimize/restore) had
+    // nothing left to clip its content against. document.documentElement.
+    // offsetWidth/Height is the pre-zoom viewport size — matches the space
+    // style.maxWidth/Height is interpreted in (window.innerWidth/Height is
+    // post-zoom and would render `zr` times too generous a cap).
+    content.style.maxWidth = document.documentElement.offsetWidth + 'px';
+    content.style.maxHeight = document.documentElement.offsetHeight + 'px';
     document.body.classList.add('window-resizing-active');
     document.body.style.cursor = cursorFor(edges);
   }
@@ -132,10 +163,14 @@ export function makeWindowResizable(content, options = {}) {
     if (active.t && top < 0) { height += top; top = 0; }
     if (left + width > vw) width = Math.max(minW, vw - left);
     if (top + height > vh) height = Math.max(minH, vh - top);
-    content.style.left = left + 'px';
-    content.style.top = top + 'px';
-    content.style.width = width + 'px';
-    content.style.height = height + 'px';
+    // left/top/width/height above are computed in post-zoom space (from
+    // startRect, itself from getBoundingClientRect(), plus post-zoom mouse
+    // deltas) — convert to pre-zoom only at the point of writing to style.
+    const zr = _zoomRatio();
+    content.style.left = (left / zr) + 'px';
+    content.style.top = (top / zr) + 'px';
+    content.style.width = (width / zr) + 'px';
+    content.style.height = (height / zr) + 'px';
   }
 
   function end() {
@@ -147,7 +182,11 @@ export function makeWindowResizable(content, options = {}) {
     clearHoverCursor();
     const r = content.getBoundingClientRect();
     if (storageKey) {
-      try { localStorage.setItem(storageKey, JSON.stringify({ w: Math.round(r.width), h: Math.round(r.height) })); } catch (_) {}
+      // Persist the pre-zoom (zoom-independent) size, not the raw post-zoom
+      // rect — otherwise a size saved at 125% text size renders 1.25x too
+      // big the next time it's restored at ANY scale, including Default.
+      const zr = _zoomRatio();
+      try { localStorage.setItem(storageKey, JSON.stringify({ w: Math.round(r.width / zr), h: Math.round(r.height / zr) })); } catch (_) {}
     }
     if (onResizeEnd) { try { onResizeEnd({ rect: r }); } catch (_) {} }
   }
@@ -220,12 +259,27 @@ export function makeWindowResizable(content, options = {}) {
       try {
         const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
         if (saved && saved.w && saved.h) {
-          const w = Math.max(minW, Math.min(saved.w, window.innerWidth));
-          const h = Math.max(minH, Math.min(saved.h, window.innerHeight));
+          // saved.w/h (written by end() above) are pre-zoom/zoom-independent
+          // sizes, and so is what style.width/height/maxWidth/maxHeight expect
+          // — clamp against document.documentElement.offsetWidth/Height (the
+          // pre-zoom viewport size), not window.innerWidth/Height (post-zoom),
+          // or a size saved under one zoom level renders wrong under another.
+          const viewportW = document.documentElement.offsetWidth;
+          const viewportH = document.documentElement.offsetHeight;
+          const w = Math.max(minW, Math.min(saved.w, viewportW));
+          const h = Math.max(minH, Math.min(saved.h, viewportH));
           content.style.width = w + 'px';
           content.style.height = h + 'px';
-          content.style.maxWidth = 'none';
-          content.style.maxHeight = 'none';
+          // Bound to the viewport instead of clearing entirely. `w`/`h` above
+          // are already clamped, but `maxWidth/maxHeight: none` used to strip
+          // the cap from the *element* permanently (inline styles persist for
+          // the DOM node's lifetime) — so any later minimize/restore cycle
+          // that nudges this box (e.g. modalManager's restoreMinHeight) let
+          // the content grow to its full natural size with nothing to clip
+          // it, pushing the header/close button off-screen. A finite viewport
+          // cap keeps `overflow-y:auto` doing its job in every later state.
+          content.style.maxWidth = viewportW + 'px';
+          content.style.maxHeight = viewportH + 'px';
         }
       } catch (_) {}
     });

@@ -3218,9 +3218,17 @@ def setup_cookbook_routes() -> APIRouter:
                     idx = uuid_to_idx.get(parts[1])
                     if idx is None or idx not in gpus_by_idx:
                         continue
-                    gpus_by_idx[idx]["processes"].append({
-                        "pid": pid, "name": pname, "used_mb": pmem,
-                    })
+                    proc_entry = {"pid": pid, "name": pname, "used_mb": pmem}
+                    # Tag our own process so the GPU-preflight check (which
+                    # warns before launching a serve) doesn't flag Odysseus's
+                    # own long-lived CUDA context (baseline driver/context
+                    # overhead, or a leftover in-process capability probe) as
+                    # "existing load" competing for VRAM. Only meaningful for
+                    # the local target — a remote host's PID namespace has no
+                    # relationship to our own os.getpid().
+                    if not host and pid == os.getpid():
+                        proc_entry["is_self"] = True
+                    gpus_by_idx[idx]["processes"].append(proc_entry)
         except Exception:
             pass
 
