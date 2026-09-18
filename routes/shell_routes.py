@@ -1693,8 +1693,24 @@ def setup_shell_routes() -> APIRouter:
                         pass
                 else:
                     try:
-                        import llama_cpp as _lcp  # type: ignore
-                        _gpu_capable = bool(_lcp.llama_supports_gpu_offload())
+                        # A CUDA-enabled wheel initializes a CUDA context as a
+                        # side effect of ggml-cuda's backend registration on
+                        # import alone — before llama_supports_gpu_offload()
+                        # is even called. Importing in-process here used to
+                        # pin that context's VRAM for the lifetime of the
+                        # whole Odysseus server, not just this check. Run the
+                        # probe in a short-lived subprocess instead so the
+                        # context — and its VRAM — dies with the check.
+                        _vp = _venv_activate_prefix(venv)
+                        probe = (
+                            f'{_vp}python3 -c "import llama_cpp; import sys; '
+                            'sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)"'
+                        )
+                        proc = await _create_shell(
+                            probe, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                        )
+                        await asyncio.wait_for(proc.communicate(), timeout=8)
+                        _gpu_capable = proc.returncode == 0
                     except Exception:
                         _gpu_capable = False
                     _has_nvidia_target = shutil.which("nvidia-smi") is not None

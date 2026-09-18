@@ -1,5 +1,6 @@
 """Tests for shell_routes.py helpers."""
 
+import ast
 import builtins
 import importlib
 import importlib.util
@@ -536,3 +537,24 @@ class TestRejectCrossSite:
 
     def test_missing_header_allowed(self):
         assert _reject_cross_site(self._req({})) is None
+
+
+def test_local_llama_cpp_gpu_probe_runs_out_of_process():
+    """import llama_cpp with a CUDA wheel initializes a CUDA context as a
+    ggml-cuda backend-registration side effect, pinning VRAM for the
+    importing process's lifetime. The local-target GPU-offload capability
+    check must run that import in a short-lived subprocess (as the SSH
+    remote-target branch already does), never in the long-lived server
+    process itself.
+    """
+    source = Path("routes/shell_routes.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    body = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "list_packages":
+            body = ast.get_source_segment(source, node)
+            break
+    assert body is not None, "list_packages not found in routes/shell_routes.py"
+    assert "import llama_cpp as _lcp" not in body
+    assert "_create_shell(" in body
+    assert "llama_supports_gpu_offload" in body
