@@ -1,0 +1,139 @@
+bugs:
+  - bug_id: BUG-2026-09-18T095530
+    date: "2026-09-18"
+    severity: high
+    priority: high
+    scope: agent-tool-selection
+    summary: >-
+      Bare "retry" after a failed MCP tool call was classified low-signal
+      (no domain keywords), dropping the tool from the model's schema list
+      and causing Qwen3-14B to loop on an unrelated tool before hallucinating
+      a nonexistent function name. Root cause: retry-continuation detection
+      was gated on a Cookbook-only keyword list. Fixed by recognizing any
+      retry phrase after an actually-failed tool call (any domain) as a
+      continuation, and by always surfacing a non-empty MCP error detail.
+    file: specs/bugs/BUG-2026-09-18T095530-mcp-retry-loop.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T101500
+    date: "2026-09-18"
+    severity: medium
+    priority: medium
+    scope: agent-tool-selection
+    summary: >-
+      A hallucinated or typo'd tool name fell through to a bare
+      "Unknown tool: X" error with no hint toward the real tool name,
+      giving the model (especially a small one) no way to self-correct
+      within the turn. Fixed by fuzzy-matching the attempted name against
+      known builtin and MCP-qualified tool names (difflib) and appending
+      a "did you mean" suggestion when a close match exists.
+    file: specs/bugs/BUG-2026-09-18T101500-hallucinated-tool-no-suggestion.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T094500
+    date: "2026-09-18"
+    severity: high
+    priority: high
+    scope: agent-tool-selection
+    summary: >-
+      A skill naming a connected remote MCP server (Nextcloud) contributed no
+      real callable tool schema when the toolset name wasn't a static tool,
+      so the model tried to route the MCP tool name through the model-router
+      (pipeline) tool, got "Model not found", then created a bogus scheduled
+      task to "deploy" an MCP server that was already connected and working.
+      Fixed by resolving non-static requires_toolsets via
+      get_tools_for_explicit_server_reference and narrowing tool selection
+      to the actual MCP schemas found.
+    file: specs/bugs/BUG-2026-09-18T094500-nextcloud-bogus-task-creation.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T032742
+    date: "2026-09-18"
+    severity: high
+    priority: high
+    scope: agent-tool-selection
+    summary: >-
+      Seerr's search-then-request workflow could surface seerr_search
+      without seerr_requests (3-tool lexical ranking cap left the request
+      tool out), leaving the model unable to complete a media request and
+      prone to wandering into large Discover-page responses. Fixed by
+      pairing *_search with *_requests explicitly whenever a request-shaped
+      query is detected.
+    file: specs/bugs/BUG-2026-09-18T032742-seerr-missing-request-tool.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T090000
+    date: "2026-09-18"
+    severity: high
+    priority: high
+    scope: agent-skills
+    summary: >-
+      Qwen invented a placeholder Seerr mediaId (12345) instead of searching
+      first, and a separate bad custom skill taught the wrong operation name
+      (seerr_post_request) and manual URL-encoding of the search query.
+      Fixed with a new skill (request-media-from-seerr) enforcing search-then-
+      select-then-request with no invented IDs, no URL-encoding, and the
+      correct seerr_create_request operation.
+    file: specs/bugs/BUG-2026-09-18T090000-seerr-hallucinated-media-id.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T033314
+    date: "2026-09-18"
+    severity: high
+    priority: medium
+    scope: calendar-tasks-notes
+    summary: >-
+      No default-calendar preference existed, so implicit event creation
+      could land in a read-only CalDAV collection returned first by the
+      server; Quick Add could also fail silently with no UI feedback. Fixed
+      with a preference-ordered _preferred_calendar() resolver, an explicit
+      "calendar" field in Quick Add's model-parse schema, async/await error
+      surfacing in the UI, and a Settings default-calendar picker.
+    file: specs/bugs/BUG-2026-09-18T033314-calendar-default-and-quick-add.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T033327
+    date: "2026-09-18"
+    severity: medium
+    priority: medium
+    scope: memory
+    summary: >-
+      Memory Tidy's per-attempt LLM timeout (120s) was too short for local
+      reasoning models (e.g. Qwen3-14B-Q5) to finish a full rewrite pass,
+      causing every attempt to 502 even when the model would have finished
+      given more time. Raised to 300s.
+    file: specs/bugs/BUG-2026-09-18T033327-memory-tidy-timeout.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T080107
+    date: "2026-09-18"
+    severity: medium
+    priority: medium
+    scope: mcp
+    summary: >-
+      Remote MCP servers requiring a static auth header (e.g. a Portainer
+      MCP gateway token) had no way to authenticate — only OAuth was
+      supported. Added an encrypted request_headers column and threaded
+      static headers through the SSE/HTTP connect paths, bypassing OAuth
+      discovery when headers are supplied.
+    file: specs/bugs/BUG-2026-09-18T080107-mcp-static-auth-headers.md
+    status: resolved
+  - bug_id: BUG-2026-09-17T195822
+    date: "2026-09-17"
+    severity: medium
+    priority: low
+    scope: cookbook
+    summary: >-
+      Missing llama-server binary on PATH forced a fallback to an in-process
+      GPU probe that permanently pinned a CUDA context in the main app
+      process, which GPU-preflight then misreported as competing external
+      VRAM load. Fixed with a Dockerfile PATH addition and a self-process
+      tag excluded from the preflight "existing load" calculation.
+    file: specs/bugs/BUG-2026-09-17T195822-cookbook-gpu-preflight-self-flag.md
+    status: resolved
+  - bug_id: BUG-2026-09-17T195822-ZOOM
+    date: "2026-09-17"
+    severity: medium
+    priority: medium
+    scope: frontend
+    summary: >-
+      The "Larger" text-size setting's CSS zoom splits getBoundingClientRect
+      (post-zoom) from offsetWidth/style.* (pre-zoom) pixel spaces; code
+      mixing the two rendered popups/dropdowns/dock/drag/resize ~1.25x too
+      big or mispositioned. Fixed with a per-module _zoomRatio() conversion
+      rolled out across three commits as more affected modules were found.
+    file: specs/bugs/BUG-2026-09-17T195822-ui-zoom-position-math.md
+    status: resolved
