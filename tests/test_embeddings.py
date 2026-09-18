@@ -1,6 +1,31 @@
 """Tests for embeddings.py"""
+import sys
+import types
 from unittest.mock import MagicMock, patch
+
+import src.embeddings as embeddings
 from src.embeddings import EmbeddingClient
+
+
+def test_local_fastembed_explicitly_uses_cpu_provider(tmp_path, monkeypatch):
+    calls = []
+    fastembed = types.ModuleType("fastembed")
+
+    class TextEmbedding:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    fastembed.TextEmbedding = TextEmbedding
+    monkeypatch.setitem(sys.modules, "fastembed", fastembed)
+    monkeypatch.setattr(embeddings, "FASTEMBED_CACHE_DIR", str(tmp_path))
+
+    embeddings.FastEmbedClient(model="test-model")
+
+    assert calls == [{
+        "model_name": "test-model",
+        "cache_dir": str(tmp_path),
+        "cuda": False,
+    }]
 
 
 class TestEmbeddingClient:

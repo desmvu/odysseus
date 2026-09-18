@@ -178,7 +178,9 @@ def setup_embedding_routes():
             cache = _cache_dir()
             await loop.run_in_executor(
                 None,
-                lambda: TextEmbedding(model_name=model_name, cache_dir=cache),
+                # Do not let a one-off model download create a persistent CUDA
+                # context in Odysseus's long-lived web process.
+                lambda: TextEmbedding(model_name=model_name, cache_dir=cache, cuda=False),
             )
             return {"status": "downloaded", "model": model_name}
         except Exception as e:

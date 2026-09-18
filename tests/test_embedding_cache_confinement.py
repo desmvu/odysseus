@@ -1,3 +1,4 @@
+import asyncio
 import sys
 import types
 
@@ -25,6 +26,30 @@ def _route_endpoint(path: str, method: str):
         if route.path == path and method in route.methods:
             return route.endpoint
     raise AssertionError(f"route not found: {method} {path}")
+
+
+def test_download_model_explicitly_uses_cpu(tmp_path, monkeypatch):
+    calls = []
+    fastembed = types.ModuleType("fastembed")
+
+    class TextEmbedding:
+        @staticmethod
+        def list_supported_models():
+            return [{"model": "test-model", "sources": {}}]
+
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+    fastembed.TextEmbedding = TextEmbedding
+    monkeypatch.setitem(sys.modules, "fastembed", fastembed)
+    monkeypatch.setattr(embedding_routes, "_cache_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(embedding_routes, "_is_downloaded", lambda _source: False)
+    download_model = _route_endpoint("/api/embeddings/models/{model_name:path}/download", "POST")
+
+    result = asyncio.run(download_model("test-model"))
+
+    assert result == {"status": "downloaded", "model": "test-model"}
+    assert calls == [{"model_name": "test-model", "cache_dir": str(tmp_path), "cuda": False}]
 
 
 def test_model_cache_path_resolves_under_cache_root(tmp_path, monkeypatch):

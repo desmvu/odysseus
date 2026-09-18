@@ -177,7 +177,10 @@ class FastEmbedClient:
                             shutil.rmtree(_root, ignore_errors=True)
             except Exception as _e:
                 logger.debug("embedding cache symlink-heal skipped: %s", _e)
-        kwargs = {"model_name": self.model, "cache_dir": cache_dir}
+        # Semantic-memory/RAG embeddings must leave the GPU available for an
+        # explicitly served model. FastEmbed's AUTO device selection can create
+        # a persistent ONNX CUDA context in this long-lived web process.
+        kwargs = {"model_name": self.model, "cache_dir": cache_dir, "cuda": False}
         self._embedding = TextEmbedding(**kwargs)
         self._dim: Optional[int] = None
         self.url = "local://fastembed"
