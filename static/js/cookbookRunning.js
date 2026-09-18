@@ -1361,6 +1361,44 @@ document.addEventListener('cookbook:state-dirty', () => {
   _syncToServer();
 });
 
+// The debounced _syncToServer path above deliberately strips hfToken via
+// _stripStateSecrets on every call — that's correct for its periodic,
+// non-user-initiated background syncs, but it also means a token typed into
+// the HF token field was NEVER actually reaching the backend: the "save on
+// change" handler called the same stripped path, so the token only ever
+// lived in the page's in-memory _envState and vanished on the next reload
+// (e.g. after a Docker restart). This sends the token explicitly, once, with
+// the same full state shape _syncToServer uses (so the backend's anti-wipe
+// merge guard behaves identically), immediately rather than debounced.
+export async function _syncHfTokenToServer(token) {
+  if (!_envState || !Array.isArray(_envState.servers) || _envState.servers.length === 0) return false;
+  const state = {
+    tasks: _loadTasks(),
+    removedTasks: _loadTombstones(),
+    presets: _loadPresets(),
+    env: _envState,
+    serveState: null,
+    serveFavorites: [],
+  };
+  try { state.serveState = JSON.parse(localStorage.getItem(SERVE_STATE_KEY)); } catch {}
+  try {
+    const favorites = JSON.parse(localStorage.getItem(SERVE_FAVORITES_KEY) || '[]');
+    state.serveFavorites = Array.isArray(favorites) ? favorites.filter(Boolean).map(String) : [];
+  } catch {}
+  const payload = _stripStateSecrets(state);
+  payload.env.hfToken = token || '';
+  try {
+    const resp = await fetch('/api/cookbook/state', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
 // Normalize state from server: collapse legacy duplicate keys to canonical form.
 // - server.modelDir (singular) → server.modelDirs[0] (canonical)
 // - strip ✕/✖ pollution from modelDirs

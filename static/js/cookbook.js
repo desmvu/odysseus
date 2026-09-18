@@ -17,7 +17,7 @@ import {
   _loadTasks, _saveTasks, _addTask, _removeTask,
   _tmuxCmd, _renderRunningTab, _clearCookbookNotif,
   _launchServeTask, _serveAutoFix, _serveAutoRetry, _serveAutoRetryReplace, _serveAutoRetryRemove,
-  _startBackgroundMonitor, _syncFromServer,
+  _startBackgroundMonitor, _syncFromServer, _syncHfTokenToServer,
   _retryDownload, _nextAvailablePort, _processQueue,
   _selfHealStaleTasks,
 } from './cookbookRunning.js';
@@ -2862,7 +2862,18 @@ function _wireTabEvents(body) {
     hfInput.addEventListener('change', async () => {
       const val = hfInput.value.trim();
       _envState.hfToken = val;
+      // The regular _persistEnvState()/_syncToServer() path strips hfToken
+      // from every sync (by design, for the periodic background channel) —
+      // send this explicit save through the dedicated unstripped path so the
+      // token actually reaches the backend instead of only living in memory
+      // for this page load. See _syncHfTokenToServer in cookbookRunning.js.
+      const _hfSaved = await _syncHfTokenToServer(val).catch(() => false);
       try { await _persistEnvState(); } catch {}
+      if (val && !_hfSaved) {
+        hfInput.title = 'Could not save — check your connection and re-enter the token';
+      } else if (hfInput.title) {
+        hfInput.title = '';
+      }
       if (val) {
         _envState.hfTokenConfigured = true;
         const masked = val.length > 6 ? val.slice(0, 3) + '…' + val.slice(-3) : '••••';
