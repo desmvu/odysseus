@@ -372,14 +372,29 @@ def _user_shell_path_bootstrap() -> list[str]:
     ]
 
 
+# Repo ids that Odysseus downloads itself for an internal feature (not a
+# servable chat/image model) but that still land in the shared HuggingFace
+# cache, where the generic scanner below would otherwise list them in
+# Cookbook's Launch tab as if they were launchable. Keep the weights cached
+# (the feature still needs them) — just don't surface them as a model.
+def _hidden_utility_model_ids() -> set[str]:
+    ids = {"facebook/sam-vit-base", "facebook/sam-vit-huge"}
+    configured = (os.getenv("ODYSSEUS_SAM_MODEL") or "").strip()
+    if configured:
+        ids.add(configured)
+    return ids
+
+
 def _cached_model_scan_script(model_dirs: list[str] | None = None, add_hf_cache: str | None = None) -> str:
     """Build the standalone Python scanner used by /api/model/cached.
     Allows for an additional HuggingFace cache path to be scanned (i.e. Windows HF cache for local WSL envs.)
     """
+    hidden_ids = sorted(_hidden_utility_model_ids())
     lines = [
         "import json, os, re, shutil, subprocess, urllib.request",
         "models = []",
         "seen = set()",
+        f"HIDDEN_MODEL_IDS = {hidden_ids!r}",
         "BLOCKED_ROOTS = ('/sys', '/proc', '/dev', '/run', '/var/run')",
         "def safe_path(p):",
         "    try:",
@@ -431,6 +446,7 @@ def _cached_model_scan_script(model_dirs: list[str] | None = None, add_hf_cache:
         "        if not d.startswith('models--'): continue",
         "        rid = d.replace('models--','').replace('--','/')",
         "        if rid in seen: continue",
+        "        if rid in HIDDEN_MODEL_IDS: continue",
         "        seen.add(rid)",
         "        blobs = os.path.join(cache, d, 'blobs')",
         "        sz, nf, ic = 0, 0, False",
