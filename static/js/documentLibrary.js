@@ -345,6 +345,22 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
       if (!res.ok) throw new Error(res.statusText);
       const data = await res.json();
 
+      // A 200 with zero results is indistinguishable client-side from a
+      // genuinely empty library, but the backend's owner filter returns an
+      // empty (not an error) result for a not-yet-authenticated request
+      // (routes/document/document_helpers.py _owner_session_filter) — a
+      // real possibility in the few seconds right after a container restart
+      // while session/auth state is still warming up. On the very first
+      // unfiltered fetch of a panel open, don't trust a zero-total result
+      // immediately; confirm it once before rendering "No documents yet".
+      const isUnfilteredFirstLoad = !append && !_librarySearch && !_libraryActiveLanguage && !_libraryArchivedView;
+      if (isUnfilteredFirstLoad && data.total === 0 && !_libraryConfirmedEmpty) {
+        _libraryConfirmedEmpty = true;
+        libraryRenderFetchError(append);
+        return;
+      }
+      if (data.total > 0) _libraryConfirmedEmpty = false;
+
       if (append) {
         _libraryDocs = _libraryDocs.concat(data.documents);
       } else {
@@ -361,7 +377,36 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
       libraryRenderLoadMore();
     } catch (e) {
       console.error('Library fetch error:', e);
+      // A transient fetch failure (most commonly the container recreating
+      // during a Docker restart) previously left _libraryDocs untouched
+      // while the caller still assumed a normal load happened, and the grid
+      // was never told anything failed — an empty/stale grid then looks
+      // pixel-identical to "no documents", which read as documents having
+      // silently disappeared. Show a visible retry affordance instead of
+      // rendering nothing, and don't touch _libraryDocs so any already-shown
+      // cards stay visible while retrying.
+      libraryRenderFetchError(append);
     }
+  }
+
+  let _libraryRetryTimer = null;
+  let _libraryConfirmedEmpty = false;
+  function libraryRenderFetchError(append) {
+    clearTimeout(_libraryRetryTimer);
+    if (!append && _libraryDocs.length === 0) {
+      const grid = document.getElementById('doclib-grid');
+      if (grid) {
+        grid.innerHTML =
+          '<div class="doclib-empty">Could not reach the server — retrying…' +
+            ' <a href="#" data-doclib-retry style="color:var(--accent,var(--red));text-decoration:underline;">Retry now</a>' +
+          '</div>';
+        grid.querySelector('[data-doclib-retry]')?.addEventListener('click', (e) => {
+          e.preventDefault();
+          libraryFetch(false);
+        });
+      }
+    }
+    _libraryRetryTimer = setTimeout(() => libraryFetch(append), 2000);
   }
 
   function libraryRenderStats() {

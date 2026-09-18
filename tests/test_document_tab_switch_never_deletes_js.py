@@ -1,0 +1,41 @@
+"""Regression test: switching tabs must not delete the document being left.
+
+A stale/empty editor DOM could make ``saveCurrentToMap()`` overwrite the cached
+previous document with blank content. ``switchToDoc()`` then treated that stale
+state as an empty draft and issued DELETE for the real previous document whenever
+users created or opened another document. Tab switching is navigation, not an
+explicit discard action; only close/discard flows may delete empty drafts.
+"""
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DOC_JS = (ROOT / "static/js/document.js").read_text()
+
+
+def _function_body(src: str, signature: str) -> str:
+    start = src.index(signature)
+    depth = 0
+    # Find the function body's opening brace, not an object-destructuring
+    # brace that may appear in the parameter list.
+    cursor = src.index(") {", start) + 2
+    while cursor < len(src):
+        if src[cursor] == "{":
+            depth += 1
+        elif src[cursor] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[start : cursor + 1]
+        cursor += 1
+    raise AssertionError(f"unbalanced braces after {signature!r}")
+
+
+def test_switching_tabs_never_issues_document_delete():
+    switch_to_doc = _function_body(DOC_JS, "function switchToDoc(docId)")
+    assert "api/document/${prevId}" not in switch_to_doc
+    assert "method: 'DELETE'" not in switch_to_doc
+
+
+def test_empty_draft_deletion_remains_limited_to_explicit_close_flow():
+    detach_doc = _function_body(DOC_JS, "function _detachDocFromSession(docId")
+    assert "method: 'DELETE'" in detach_doc

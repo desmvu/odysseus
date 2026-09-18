@@ -4483,17 +4483,11 @@ function _zoomRatio() {
     // Save current doc state before switching
     saveCurrentToMap();
 
-    // Auto-delete the doc we're leaving if it's completely empty
-    const prevId = activeDocId;
-    if (prevId && prevId !== docId && docs.has(prevId)) {
-      const prev = docs.get(prevId);
-      if (prev.language !== 'email' && !(prev.content || '').trim() && !(prev.title || '').trim()) {
-        fetch(`${API_BASE}/api/document/${prevId}`, { method: 'DELETE' }).catch(() => {});
-        docs.delete(prevId);
-        _syncDocIndicator();
-      }
-    }
-
+    // Switching tabs must never delete the tab being left. The editor DOM can
+    // be stale/empty while a library modal is closing or the panel remounts;
+    // using it to decide that the previous cached document is blank caused a
+    // normal "New document" action to issue DELETE for the prior document.
+    // Empty drafts are still removed only by explicit close/discard flows.
     activeDocId = docId;
     clearSelection();
     const doc = docs.get(docId);
