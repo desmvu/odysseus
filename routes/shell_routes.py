@@ -455,8 +455,17 @@ def dist_status(ds):
 
 def probe(n):
     mods = {{n: mod_status(n)}}
-    if n == 'diffusers':
+    # _package_installed_from_probe reads modules.get('torch')/('transformers')
+    # as a fallback when importlib.metadata can't find dist-info (common with
+    # conda/editable installs). 'diffusers' got this fallback but 'sam_mask'
+    # and 'krea_diffusers' didn't, even though they depend on the same
+    # packages — so an install that's real but has no discoverable dist-info
+    # showed red for sam_mask/krea_diffusers while diffusers alone recovered.
+    if n in ('diffusers', 'krea_diffusers'):
         mods['torch'] = mod_status('torch')
+    if n == 'sam_mask':
+        mods['torch'] = mod_status('torch')
+        mods['transformers'] = mod_status('transformers')
     dists = dist_status(dist_names.get(n, [n]))
     bins = {{b: shutil.which(b) for b in bin_names.get(n, [])}}
     files = {{}}
@@ -1620,6 +1629,23 @@ def setup_shell_routes() -> APIRouter:
                         "dists": {"vllm": _vllm_version} if _vllm_version else {},
                     }
                     pkg["status_note"] = _package_status_note("vllm", probe)
+            elif pkg["name"] == "sam_mask":
+                # "sam_mask" is a synthetic feature-bundle name (torch +
+                # transformers), not a real importable module — unlike
+                # diffusers/krea_diffusers this package has target: "local",
+                # so it never reaches the SSH-probe special-casing above and
+                # would otherwise fall into the generic else-branch below,
+                # which does `import_module("sam_mask")` and always fails.
+                try:
+                    importlib.import_module("torch")
+                    importlib.import_module("transformers")
+                    torch_ver = importlib_metadata.version("torch")
+                    transformers_ver = importlib_metadata.version("transformers")
+                    pkg["installed"] = True
+                    pkg["status_note"] = f"SAM object masks: transformers {transformers_ver} with torch {torch_ver}"
+                except (ImportError, importlib_metadata.PackageNotFoundError):
+                    pkg["installed"] = False
+                    pkg["status_note"] = "SAM click/object mask selection needs transformers and torch."
             else:
                 try:
                     _import_optional_dependency_for_status(pkg["name"])
