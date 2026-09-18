@@ -74,6 +74,49 @@ def test_polish_internet_search_request_classifies_as_web():
     assert "web" in intent["domains"]
 
 
+def test_bare_retry_after_failed_mcp_tool_is_a_continuation_regardless_of_domain():
+    messages = [
+        {"role": "user", "content": "Use Nextcloud to list files inside Work."},
+        {
+            "role": "assistant",
+            "content": "Nextcloud server unreachable. Check connectivity or server status. Retry?",
+            "metadata": {
+                "tool_events": [
+                    {"tool": "mcp__b3c26839__nc_webdav_list_directory", "exit_code": 1}
+                ]
+            },
+        },
+        {"role": "user", "content": "retry"},
+    ]
+
+    intent = _classify_agent_request(messages, "retry")
+
+    assert intent["continuation"] is True
+    assert intent["low_signal"] is False
+    assert "mcp__b3c26839__nc_webdav_list_directory" in intent["retry_failed_tools"]
+    assert "nextcloud" in intent["retrieval_query"].lower()
+
+
+def test_bare_retry_after_a_successful_tool_call_is_not_a_continuation():
+    messages = [
+        {"role": "user", "content": "Use Nextcloud to list files inside Work."},
+        {
+            "role": "assistant",
+            "content": "Here are the files.",
+            "metadata": {
+                "tool_events": [
+                    {"tool": "mcp__b3c26839__nc_webdav_list_directory", "exit_code": 0}
+                ]
+            },
+        },
+        {"role": "user", "content": "retry"},
+    ]
+
+    intent = _classify_agent_request(messages, "retry")
+
+    assert intent["retry_failed_tools"] == set()
+
+
 def test_insert_before_latest_user_places_context_before_last_user_turn():
     messages = [
         {"role": "user", "content": "first"},

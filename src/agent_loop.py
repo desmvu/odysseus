@@ -1338,17 +1338,53 @@ def _is_casual_low_signal(text: str) -> bool:
     return len(tail_words) <= 2
 
 
+def _last_assistant_failed_tool_names(messages: List[Dict]) -> Set[str]:
+    """Qualified tool names from the most recent assistant turn's tool_events
+    that ended with a non-zero exit_code.
+
+    Used to recognize a bare "retry"/"try again" as a continuation of
+    whichever tool just failed, independent of which domain it belongs to
+    (Cookbook, Nextcloud MCP, email, ...). Without this, a short retry after
+    an MCP tool failure carries no domain keyword, gets classified low-signal,
+    and RAG hands the model an unrelated tool set.
+    """
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        metadata = message.get("metadata")
+        if not isinstance(metadata, dict):
+            return set()
+        events = metadata.get("tool_events")
+        if not isinstance(events, list):
+            return set()
+        failed = set()
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+            exit_code = event.get("exit_code")
+            if exit_code not in (0, None):
+                name = str(event.get("tool") or "").strip()
+                if name:
+                    failed.add(name)
+        return failed
+    return set()
+
+
 def _is_contextual_retry_continuation(messages: List[Dict], text: str) -> bool:
     """Treat "try again / it failed" as a continuation only for active tool work.
 
     These follow-ups are common after Cookbook launches: the latest user turn
     says only "try again it failed", while the actionable model/host/command
     details live one or two turns back. Keep this intentionally narrow so
-    ordinary chat does not inherit stale Cookbook context.
+    ordinary chat does not inherit stale Cookbook context. A retry phrase
+    immediately after an actually-failed tool call (any domain) also counts —
+    that failure is a stronger, domain-independent signal than a keyword list.
     """
     latest = str(text or "").strip()
     if not latest or not _RETRY_CONTINUATION_RE.search(latest):
         return False
+    if _last_assistant_failed_tool_names(messages):
+        return True
     recent = _recent_context_for_retrieval(messages, max_user=5, max_chars=1200)
     return bool(_COOKBOOK_CONTEXT_RE.search(recent))
 
@@ -1398,6 +1434,7 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
     continuation = _is_explicit_continuation(text) or _assistant_requested_followup(messages) or retry_continuation
     retrieval_query = _recent_context_for_retrieval(messages) if continuation else text
     q = retrieval_query.lower()
+    retry_failed_tools = _last_assistant_failed_tool_names(messages) if retry_continuation else set()
 
     if not text or bool(_LOW_SIGNAL_RE.match(text)) or _is_casual_low_signal(text):
         return {
@@ -1405,6 +1442,7 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
             "continuation": False,
             "domains": set(),
             "retrieval_query": text,
+            "retry_failed_tools": retry_failed_tools,
         }
 
     domains: Set[str] = set()
@@ -1484,6 +1522,7 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
         "continuation": continuation,
         "domains": domains,
         "retrieval_query": retrieval_query,
+        "retry_failed_tools": retry_failed_tools,
     }
 
 
@@ -4086,12 +4125,48 @@ async def stream_agent_loop(
                         _retrieval_query, skills=_owner_skills,
                         threshold=0.25, max_items=3,
                     ):
-                        _relevant_tools.update(
-                            t for t in (_sk.get("requires_toolsets") or [])
-                            if t in _known
-                        )
+                        for _toolset in (_sk.get("requires_toolsets") or []):
+                            if _toolset in _known:
+                                _relevant_tools.add(_toolset)
+                                continue
+                            # A skill may name a connected remote MCP server
+                            # (for example ``nextcloud``), not a static
+                            # Odysseus tool. Resolve it to its narrow dynamic
+                            # schemas here. Without this, a follow-up such as
+                            # "list files inside Work" receives the skill but
+                            # no MCP tool, and smaller models fall back to
+                            # unrelated pipeline/task tools.
+                            if mcp_mgr:
+                                _skill_mcp_tools = mcp_mgr.get_tools_for_explicit_server_reference(
+                                    f"{_retrieval_query} on {_toolset}",
+                                    _mcp_disabled_map,
+                                )
+                                if _skill_mcp_tools:
+                                    # A matched remote-MCP skill is as narrow
+                                    # as an explicitly named server. Retain
+                                    # only its schemas and ambient controls;
+                                    # otherwise an earlier RAG hit such as
+                                    # `pipeline` can make a small model treat
+                                    # an MCP tool identifier as a model name.
+                                    from src.tool_index import ALWAYS_AVAILABLE
+                                    _relevant_tools = (
+                                        set(ALWAYS_AVAILABLE)
+                                        | forced_set
+                                        | _skill_mcp_tools
+                                    )
         except Exception as _e:
             logger.debug(f"[tool-rag] skill-aware tool include skipped: {_e}")
+
+    _retry_failed_tools = {t for t in (_intent.get("retry_failed_tools") or ()) if t not in disabled_tools}
+    if _retry_failed_tools and not guide_only:
+        # A bare "retry" after a failed tool call must bring the exact same
+        # tool back into scope even if the retrieval query's text match is
+        # weak (e.g. a qualified MCP tool name carries no English keyword).
+        if _relevant_tools is None:
+            from src.tool_index import ALWAYS_AVAILABLE
+            _relevant_tools = set(ALWAYS_AVAILABLE)
+        _relevant_tools.update(_retry_failed_tools)
+        logger.info("[tool-rag] Retry continuation restored failed tools=%s", sorted(_retry_failed_tools))
 
     _intent_domains = set(_intent.get("domains") or set())
     _base_relevant_tools = None if _relevant_tools is None else set(_relevant_tools)

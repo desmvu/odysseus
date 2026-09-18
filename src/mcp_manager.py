@@ -509,8 +509,15 @@ class McpManager:
                     logger.error(f"MCP reconnect failed for {server_id}")
                     return {"error": f"MCP server crashed and reconnect failed: {server_id}", "exit_code": 1}
             else:
-                logger.error(f"MCP tool call failed: {qualified_name}: {e}")
-                return {"error": str(e), "exit_code": 1}
+                logger.error(f"MCP tool call failed: {qualified_name}: {e!r}")
+                # anyio/mcp transport exceptions (cancel-scope, EndOfStream,
+                # ClosedResourceError...) commonly stringify to "" — an empty
+                # error string reads as "(no output)" to the model, which then
+                # fabricates a plausible-sounding cause (e.g. "ConnectTimeout")
+                # instead of reporting the real failure. Always surface the
+                # exception's type so there is something concrete to act on.
+                detail = str(e).strip() or type(e).__name__
+                return {"error": f"MCP transport error ({detail}) calling {qualified_name}. Retry once; if it repeats, reconnect the server.", "exit_code": 1}
 
         return result
 
@@ -635,6 +642,10 @@ class McpManager:
             query_terms.add("list")
 
         ranked: List[Tuple[int, str]] = []
+        explicitly_named: List[str] = []
+        request_workflow_tools: List[str] = []
+        soulseek_workflow_tools: List[str] = []
+        nextcloud_workflow_tools: List[str] = []
         for server_id, tools in self._tools.items():
             if self.is_builtin(server_id):
                 continue
@@ -650,14 +661,81 @@ class McpManager:
                 continue
 
             disabled = (disabled_map or {}).get(server_id, set())
+            # Media/catalogue servers need search before a request. Natural
+            # language often names neither group, so keep this conventional
+            # read-then-write pair together instead of returning only a write
+            # group or unrelated lexical matches.
+            enabled_names = {str(tool["name"]) for tool in tools if tool["name"] not in disabled}
+            if {"request", "requests"} & query_terms:
+                search_names = sorted(name for name in enabled_names if name.endswith("_search"))
+                requests_names = sorted(name for name in enabled_names if name.endswith("_requests"))
+                if search_names and requests_names:
+                    request_workflow_tools.extend(
+                        f"mcp__{server_id}__{name}" for name in (search_names[:1] + requests_names[:1])
+                    )
+            # slskd searches are asynchronous: its 98-tool surface otherwise
+            # makes lexical ranking omit either the result reader or the
+            # transfer creator. Expose the complete safe lookup sequence, and
+            # the queue operation only when the user explicitly asks to act.
+            music_terms = {"song", "songs", "track", "tracks", "music", "album", "albums", "download", "queue"}
+            required_music_tools = {"slskd_create_search", "slskd_get_search_results"}
+            if music_terms & query_terms and required_music_tools <= enabled_names:
+                workflow_names = ["slskd_create_search", "slskd_get_search_results"]
+                if {"download", "queue", "request"} & query_terms and "slskd_create_transfers_downloads" in enabled_names:
+                    workflow_names.append("slskd_create_transfers_downloads")
+                soulseek_workflow_tools.extend(
+                    f"mcp__{server_id}__{name}" for name in workflow_names
+                )
+            # Folder-listing follow-ups frequently omit "Nextcloud" (e.g.
+            # "list files inside Work"). Do not dilute this read-only intent
+            # with similarly-scored Deck attachment tools. "contents" alone is
+            # ambiguous between "folder contents" and "file contents" (e.g.
+            # "show me the contents of STREAM IDEAS.md"), so a filename-shaped
+            # token routes to the file reader instead of the directory lister.
+            file_hint = bool(re.search(r"\.[a-z0-9]{1,5}\b", normalized_query))
+            folder_words = {"folder", "directory", "root", "inside"}
+            if (
+                "nc_webdav_read_file" in enabled_names
+                and {"content", "contents", "show", "read", "open"} & query_terms
+                and file_hint
+            ):
+                nextcloud_workflow_tools.append(
+                    f"mcp__{server_id}__nc_webdav_read_file"
+                )
+            elif (
+                "nc_webdav_list_directory" in enabled_names
+                and {"list", "show"} & query_terms
+                and (folder_words & query_terms or ("contents" in query_terms and not file_hint))
+            ):
+                nextcloud_workflow_tools.append(
+                    f"mcp__{server_id}__nc_webdav_list_directory"
+                )
             for tool in tools:
                 if tool["name"] in disabled:
+                    continue
+                qualified = f"mcp__{server_id}__{tool['name']}"
+                # Tool identifiers are often deliberately named in an explicit
+                # instruction (for example, ``seerr_search`` followed by
+                # ``seerr_requests``). Treat that as stronger than lexical
+                # ranking: otherwise a three-tool cap can drop the requested
+                # write tool and leave the model to wander through unrelated
+                # resource groups.
+                if re.search(rf"(?<!\w){re.escape(tool['name'].casefold())}(?!\w)", normalized_query):
+                    explicitly_named.append(qualified)
                     continue
                 searchable = f"{tool['name']} {tool.get('description', '')}".casefold()
                 score = sum(term in searchable for term in query_terms)
                 if score:
-                    ranked.append((score, f"mcp__{server_id}__{tool['name']}"))
+                    ranked.append((score, qualified))
 
+        if explicitly_named:
+            return set(sorted(explicitly_named)[:max_tools])
+        if request_workflow_tools:
+            return set(sorted(request_workflow_tools)[:max_tools])
+        if soulseek_workflow_tools:
+            return set(sorted(soulseek_workflow_tools)[:max_tools])
+        if nextcloud_workflow_tools:
+            return set(sorted(nextcloud_workflow_tools)[:max_tools])
         ranked.sort(key=lambda item: (-item[0], item[1]))
         return {qualified for _, qualified in ranked[:max_tools]}
 

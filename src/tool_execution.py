@@ -9,6 +9,7 @@ Extracted from agent_tools.py.
 
 import asyncio
 import collections
+import difflib
 import contextvars
 import json
 import logging
@@ -1334,8 +1335,19 @@ async def _execute_tool_block_impl(
 
     else:
         desc = f"unknown: {tool}"
+        error = f"Unknown tool: {tool}"
+        candidates = set(dynamic_handlers.keys())
+        mcp_for_suggest = get_mcp_manager()
+        if mcp_for_suggest:
+            try:
+                candidates.update(t["qualified_name"] for t in mcp_for_suggest.get_all_tools())
+            except Exception:
+                pass
+        close = difflib.get_close_matches(tool, candidates, n=2, cutoff=0.6)
+        if close:
+            error += f" — did you mean: {', '.join(close)}?"
         result = {
-            "error": f"Unknown tool: {tool}",
+            "error": error,
             "exit_code": 1
         }
 

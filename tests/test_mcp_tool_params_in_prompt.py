@@ -48,6 +48,105 @@ def test_explicit_mcp_server_reference_keeps_its_tools_visible():
     assert selected == {"mcp__srv1__fetch_doc"}
 
 
+def test_explicit_mcp_server_reference_prioritizes_named_tool_identifiers():
+    mgr = McpManager()
+    mgr._tools = {"seerr": [
+        {"name": "seerr_search", "description": "Search media."},
+        {"name": "seerr_discover", "description": "Browse discovery pages."},
+        {"name": "seerr_requests", "description": "Create or list requests."},
+    ]}
+    mgr._connections = {"seerr": {"name": "Seerr", "identity": ""}}
+
+    selected = mgr.get_tools_for_explicit_server_reference(
+        "Use Seerr's seerr_search, then seerr_requests to request the movie."
+    )
+
+    assert selected == {
+        "mcp__seerr__seerr_search",
+        "mcp__seerr__seerr_requests",
+    }
+
+
+def test_explicit_mcp_server_reference_keeps_search_and_request_workflow_together():
+    mgr = McpManager()
+    mgr._tools = {"seerr": [
+        {"name": "seerr_search", "description": "Search media."},
+        {"name": "seerr_discover", "description": "Browse discovery pages."},
+        {"name": "seerr_requests", "description": "Create or list requests."},
+    ]}
+    mgr._connections = {"seerr": {"name": "Seerr", "identity": ""}}
+
+    selected = mgr.get_tools_for_explicit_server_reference(
+        "Request Toy Story 5 on Seerr."
+    )
+
+    assert selected == {
+        "mcp__seerr__seerr_search",
+        "mcp__seerr__seerr_requests",
+    }
+
+
+def test_explicit_nextcloud_folder_listing_excludes_unrelated_tools():
+    mgr = McpManager()
+    mgr._tools = {"nextcloud": [
+        {"name": "nc_webdav_list_directory", "description": "List directory contents."},
+        {"name": "deck_attach_file", "description": "Attach a file to a Deck card."},
+        {"name": "deck_get_stacks", "description": "List stacks."},
+    ]}
+    mgr._connections = {"nextcloud": {"name": "Nextcloud", "identity": ""}}
+
+    assert mgr.get_tools_for_explicit_server_reference(
+        "List files inside Work on Nextcloud."
+    ) == {"mcp__nextcloud__nc_webdav_list_directory"}
+
+
+def test_explicit_nextcloud_file_read_prefers_read_file_over_list_directory():
+    mgr = McpManager()
+    mgr._tools = {"nextcloud": [
+        {"name": "nc_webdav_list_directory", "description": "List directory contents."},
+        {"name": "nc_webdav_read_file", "description": "Read a file's contents."},
+        {"name": "deck_attach_file", "description": "Attach a file to a Deck card."},
+    ]}
+    mgr._connections = {"nextcloud": {"name": "Nextcloud", "identity": ""}}
+
+    assert mgr.get_tools_for_explicit_server_reference(
+        "show me the contents of STREAM IDEAS.md on nextcloud"
+    ) == {"mcp__nextcloud__nc_webdav_read_file"}
+
+
+def test_explicit_soulseek_lookup_keeps_search_and_results_together():
+    mgr = McpManager()
+    mgr._tools = {"soulseek": [
+        {"name": "slskd_create_search", "description": "Create a search."},
+        {"name": "slskd_get_search_results", "description": "Read results."},
+        {"name": "slskd_create_transfers_downloads", "description": "Queue a download."},
+        {"name": "slskd_delete_search", "description": "Delete a search."},
+    ]}
+    mgr._connections = {"soulseek": {"name": "Soulseek", "identity": ""}}
+
+    assert mgr.get_tools_for_explicit_server_reference("Find this song on Soulseek.") == {
+        "mcp__soulseek__slskd_create_search",
+        "mcp__soulseek__slskd_get_search_results",
+    }
+
+
+def test_explicit_soulseek_download_adds_only_the_queue_tool():
+    mgr = McpManager()
+    mgr._tools = {"soulseek": [
+        {"name": "slskd_create_search", "description": "Create a search."},
+        {"name": "slskd_get_search_results", "description": "Read results."},
+        {"name": "slskd_create_transfers_downloads", "description": "Queue a download."},
+        {"name": "slskd_delete_search", "description": "Delete a search."},
+    ]}
+    mgr._connections = {"soulseek": {"name": "Soulseek", "identity": ""}}
+
+    assert mgr.get_tools_for_explicit_server_reference("Download this song from Soulseek.") == {
+        "mcp__soulseek__slskd_create_search",
+        "mcp__soulseek__slskd_get_search_results",
+        "mcp__soulseek__slskd_create_transfers_downloads",
+    }
+
+
 def test_explicit_mcp_server_reference_returns_a_bounded_relevant_set():
     mgr = McpManager()
     mgr._tools = {"nextcloud": [
