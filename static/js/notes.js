@@ -9,7 +9,7 @@ import * as Modals from './modalManager.js';
 import { attachColorPicker } from './colorPicker.js';
 import { makeWindowDraggable } from './windowDrag.js';
 import { snapModalToZone } from './tileManager.js';
-import { applyEdgeDock, clearDockSide } from './modalSnap.js';
+import { applyEdgeDock, clearDockSide, suspendDock } from './modalSnap.js';
 import { topToolWindowZ, topPortalZ } from './toolWindowZOrder.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
@@ -1690,6 +1690,12 @@ export function closePanel(direction) {
 
   const pane = document.getElementById('notes-pane');
   const backdrop = document.getElementById('notes-pane-backdrop');
+  // Notes is a virtual modal: modalManager cannot find `notes-panel` to
+  // release its right-dock body push. Release it before creating the chip so
+  // the chip measures the expanded composer, not the former 2/3 workspace.
+  if (_minimize && pane) {
+    try { suspendDock(pane); } catch (_) {}
+  }
   if (pane) {
     // Scale-out + fade. Match the enter animation duration so close feels
     // like the same gesture played backwards.
@@ -1705,8 +1711,18 @@ export function closePanel(direction) {
   } else if (backdrop) {
     backdrop.remove();
   }
-  // Show the dock chip for a swipe-down minimize (tap it to reopen).
-  if (_minimize) { try { Modals.minimize('notes-panel'); } catch {} }
+  // Show the dock chip for a swipe-down minimize (tap it to reopen). The
+  // right-dock release and composer width transition settle across frames, so
+  // refresh now, next frame, and after the short panel exit animation.
+  if (_minimize) {
+    try { Modals.minimize('notes-panel'); } catch {}
+    const refreshChipPosition = () => {
+      try { Modals.refreshDockPosition(); } catch (_) {}
+    };
+    refreshChipPosition();
+    requestAnimationFrame(refreshChipPosition);
+    setTimeout(refreshChipPosition, 220);
+  }
 }
 
 export function togglePanel() {

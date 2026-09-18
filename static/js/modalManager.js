@@ -192,29 +192,31 @@ function _ensureDock() {
       const dock = document.getElementById('minimized-dock');
       if (dock) _applyDockPos(dock);
     }).observe(chatContainer, { attributes: true, attributeFilter: ['class'] });
-    // The composer width/center changes with a monitor resize and with the
-    // sidebar's responsive layout. Keep welcome chips anchored to its center.
-    const syncWelcomeDock = () => {
-      if (!chatContainer.classList.contains('welcome-active')) return;
+    // The composer width/center changes with a monitor resize, an edge-docked
+    // tool, and sidebar state. A minimized chip belongs above the composer in
+    // both welcome and active-chat layouts, not at a stale former workspace
+    // center. This is especially important when a right-docked Notes pane is
+    // minimized: releasing its dock expands the composer asynchronously.
+    const syncComposerDock = () => {
       const dock = document.getElementById('minimized-dock');
       if (dock) _applyDockPos(dock);
     };
-    window.addEventListener('resize', () => requestAnimationFrame(syncWelcomeDock));
+    window.addEventListener('resize', () => requestAnimationFrame(syncComposerDock));
 
     // Sidebar open/close changes the workspace and composer center without a
-    // window resize or a welcome-state change. Follow the composer through
-    // that width transition, then settle once its final geometry is known.
+    // window resize. Follow the composer through that width transition, then
+    // settle once its final geometry is known.
     const composer = chatContainer.querySelector('.chat-input-bar');
     if (composer && typeof ResizeObserver !== 'undefined') {
-      new ResizeObserver(() => requestAnimationFrame(syncWelcomeDock)).observe(composer);
+      new ResizeObserver(() => requestAnimationFrame(syncComposerDock)).observe(composer);
     }
     const sidebar = document.getElementById('sidebar');
     if (sidebar) {
       sidebar.addEventListener('transitionend', (event) => {
-        if (event.propertyName === 'width') syncWelcomeDock();
+        if (event.propertyName === 'width') syncComposerDock();
       });
       if (typeof MutationObserver !== 'undefined') {
-        new MutationObserver(() => requestAnimationFrame(syncWelcomeDock))
+        new MutationObserver(() => requestAnimationFrame(syncComposerDock))
           .observe(sidebar, { attributes: true, attributeFilter: ['class'] });
       }
     }
@@ -296,24 +298,21 @@ function _loadDockState() {
 // render because the empty-dock branch wipes inline styles via cssText='',
 // which would otherwise drop the position the moment the dock clears.
 function _applyDockPos(dock) {
-  // Welcome has a centered composer inside the workspace (not the whole
-  // viewport, because the sidebar/rail owns the left side). Anchor the dock
-  // to that composer even when no custom dock position has been saved. This
-  // keeps a lone chip and a multi-chip group centered over the input on every
-  // monitor shape rather than centering them behind the sidebar.
+  // The composer is centered inside the usable workspace, not necessarily the
+  // viewport: an open sidebar or edge-docked tool changes that workspace in
+  // welcome AND active-chat layouts. Unless the user deliberately dragged the
+  // dock elsewhere, keep its chips centered over the composer.
   const chatContainer = document.getElementById('chat-container');
-  if (chatContainer && chatContainer.classList.contains('welcome-active')) {
-    const composer = chatContainer.querySelector('.chat-input-bar');
-    const rect = composer?.getBoundingClientRect();
-    if (rect && rect.width > 0) {
-      const zr = _zoomRatio();
-      dock.style.left = `${(rect.left + rect.width / 2) / zr}px`;
-      dock.style.top = '';
-      dock.style.right = 'auto';
-      dock.style.bottom = '';
-      dock.style.transform = 'translateX(-50%)';
-      return;
-    }
+  const composer = chatContainer?.querySelector('.chat-input-bar');
+  const rect = composer?.getBoundingClientRect();
+  if (!_dockPos && rect && rect.width > 0) {
+    const zr = _zoomRatio();
+    dock.style.left = `${(rect.left + rect.width / 2) / zr}px`;
+    dock.style.top = '';
+    dock.style.right = 'auto';
+    dock.style.bottom = '';
+    dock.style.transform = 'translateX(-50%)';
+    return;
   }
   if (!_dockPos) return;
   dock.style.left = `${_dockPos.left}px`;
@@ -1316,6 +1315,13 @@ export function unregister(id) {
 
 export function isRegistered(id)  { return _state.has(id); }
 export function isMinimized(id)   { return _state.get(id)?.isMinimized === true; }
+
+// Public for virtual panels (Notes, document editor) that release layout
+// outside modalManager before creating their minimized chip.
+export function refreshDockPosition() {
+  const dock = document.getElementById('minimized-dock');
+  if (dock) _applyDockPos(dock);
+}
 
 export function minimize(id) {
   // Lazy-register if a known modal isn't yet registered (e.g. user clicked `_`
