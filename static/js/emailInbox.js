@@ -13,6 +13,13 @@ import { emailApiUrl, emailAccountQuery } from './emailShared.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
 const API_BASE = window.location.origin;
+
+// CSS `zoom` (the "Larger" text-size setting) splits pointer/rect
+// measurement (rendered pixels) from `.style.*` writes (authored pixels).
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
 const _acct = () => emailAccountQuery('&');
 
 const _emailSetupHint = () => '<div style="margin-top:6px;opacity:0.72;font-size:11px;">Setup: <span style="color:var(--accent,var(--red));">Settings &rsaquo; Integrations</span></div>';
@@ -715,7 +722,7 @@ function _createEmailItem(em) {
       if (dx < 0) {
         // Only swipe-left for archive; clamp at -160 so it doesn't fly off
         const offset = Math.max(dx, -160);
-        item.style.transform = `translateX(${offset}px)`;
+        item.style.transform = `translateX(${offset / _zoomRatio()}px)`;
         item.style.background = `linear-gradient(to right, transparent, transparent ${100 + offset/1.6}%, var(--red) ${100 + offset/1.6}%)`;
       }
     }, { passive: true });

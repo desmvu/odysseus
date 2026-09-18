@@ -26,6 +26,15 @@
  */
 import { state } from '../state.js';
 
+// CSS `zoom` (the "Larger" text-size setting) makes touch/mouse deltas and
+// getBoundingClientRect() rendered/post-zoom pixels while `.style.*` writes
+// stay authored/pre-zoom. Divide a rendered value by this ratio before
+// writing it, or before persisting it to localStorage.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 export function buildRightPanel({ controlsHTML, layerPanelHTML }) {
   const rightPanel = document.createElement('div');
   rightPanel.className = 'ge-right-panel';
@@ -51,7 +60,7 @@ export function buildRightPanel({ controlsHTML, layerPanelHTML }) {
     controls.addEventListener('touchmove', (e) => {
       if (!dragging) return;
       const dy = e.touches[0].clientY - sy;
-      if (dy > 0) controls.style.transform = `translateY(${dy}px)`;
+      if (dy > 0) controls.style.transform = `translateY(${dy / _zoomRatio()}px)`;
     }, { passive: true });
     controls.addEventListener('touchend', (e) => {
       if (!dragging) return;
@@ -184,14 +193,14 @@ export function buildRightPanel({ controlsHTML, layerPanelHTML }) {
     // the editor, so a leftward drag pulls its left edge left).
     const delta = panelStartX - e.clientX;
     const next = Math.max(160, Math.min(window.innerWidth - 200, panelStartW + delta));
-    rightPanel.style.flex = `0 0 ${next}px`;
+    rightPanel.style.flex = `0 0 ${next / _zoomRatio()}px`;
   });
   document.addEventListener('mouseup', () => {
     if (!panelResizing) return;
     panelResizing = false;
     document.body.style.cursor = '';
     try {
-      const w = Math.round(rightPanel.getBoundingClientRect().width);
+      const w = Math.round(rightPanel.getBoundingClientRect().width / _zoomRatio());
       localStorage.setItem('ge-right-panel-width', String(w));
     } catch {}
   });

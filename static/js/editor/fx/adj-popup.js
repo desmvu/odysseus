@@ -176,18 +176,19 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
       menu.style.right = '';
       menu.style.bottom = '';
     } else if (r) {
+      const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
       const menuW = 220;
-      const menuH = menu.offsetHeight || 200;
+      const menuH = (menu.offsetHeight || 200) * zr;
       const rightX = r.right + 4;
       const leftX  = r.left - menuW - 4;
       const fitsRight = rightX + menuW <= window.innerWidth - 8;
       let left = fitsRight ? rightX : Math.max(8, leftX);
       left = Math.min(window.innerWidth - menuW - 8, Math.max(8, left));
-      menu.style.left = left + 'px';
+      menu.style.left = (left / zr) + 'px';
       let top = r.top;
       if (top + menuH > window.innerHeight - 8) top = r.bottom - menuH;
       top = Math.min(window.innerHeight - menuH - 8, Math.max(8, top));
-      menu.style.top = top + 'px';
+      menu.style.top = (top / zr) + 'px';
     }
     menu.querySelectorAll('.ge-fx-menu-item').forEach(btn => {
       const activate = (ev) => {
@@ -217,8 +218,9 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
     if (!pop) return;
     const type = pop._type;
     const r = pop.getBoundingClientRect();
-    pop._stashLeft = r.left;
-    pop._stashTop  = r.top;
+    const _zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    pop._stashLeft = r.left / _zr;
+    pop._stashTop  = r.top / _zr;
     pop.style.display = 'none';
     if (state.adjPopupEl === pop) state.adjPopupEl = null;
     const popupId = pop._modalId || `ge-fx-popup-${Math.random().toString(36).slice(2, 8)}`;

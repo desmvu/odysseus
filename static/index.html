@@ -1307,8 +1307,12 @@
 
     function reposition() {
       const barRect = chatBar.getBoundingClientRect();
-      bottomBtn.style.bottom = (window.innerHeight - barRect.top + 16) + 'px';
-      bottomBtn.style.right = (window.innerWidth - barRect.right + 8) + 'px';
+      // CSS `zoom` (the "Larger" text-size setting) makes getBoundingClientRect()/
+      // window.innerWidth/innerHeight rendered/post-zoom pixels while `.style.*`
+      // writes stay authored/pre-zoom — convert before writing.
+      const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+      bottomBtn.style.bottom = ((window.innerHeight - barRect.top + 16) / zr) + 'px';
+      bottomBtn.style.right = ((window.innerWidth - barRect.right + 8) / zr) + 'px';
     }
 
     function update() {

@@ -148,9 +148,14 @@ export function wireCanvasEvents({ canvasArea, beginDraw, continueDraw, endDraw,
     return { x: parseFloat(v) || 0, y: parseFloat(u) || 0 };
   };
   const applyOffset = (x, y) => {
+    // Keep dataset.panX/panY in the same rendered/post-zoom space that
+    // getOffset()/startX/startY already use (they're pure clientX/clientY
+    // deltas) — only convert at the point of writing the CSS transform,
+    // which is interpreted in authored/pre-zoom space.
     canvasArea.dataset.panX = String(x);
     canvasArea.dataset.panY = String(y);
-    const t = `translate3d(${x}px, ${y}px, 0)`;
+    const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    const t = `translate3d(${x / zr}px, ${y / zr}px, 0)`;
     state.mainCanvas.style.transform = t;
     if (state.transformOverlay) state.transformOverlay.style.transform = t;
   };

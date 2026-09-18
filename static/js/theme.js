@@ -1399,10 +1399,11 @@ function _showThemeZoneHighlight(selector) {
     if (r.width < 2 || r.height < 2) return;
     const overlay = document.createElement('div');
     overlay.className = 'theme-zone-highlight';
-    overlay.style.top    = (r.top - 2) + 'px';
-    overlay.style.left   = (r.left - 2) + 'px';
-    overlay.style.width  = (r.width + 4) + 'px';
-    overlay.style.height = (r.height + 4) + 'px';
+    const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    overlay.style.top    = ((r.top - 2) / zr) + 'px';
+    overlay.style.left   = ((r.left - 2) / zr) + 'px';
+    overlay.style.width  = ((r.width + 4) / zr) + 'px';
+    overlay.style.height = ((r.height + 4) / zr) + 'px';
     document.body.appendChild(overlay);
   });
 }

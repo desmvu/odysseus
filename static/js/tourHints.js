@@ -96,8 +96,11 @@ function _show(modal) {
   // Prefer placing to the right of the modal; fall back to left, then below.
   pop.style.opacity = '0';
   requestAnimationFrame(() => {
-    const pw = pop.offsetWidth || 260;
-    const ph = pop.offsetHeight || 200;
+    const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    // offsetWidth/Height are authored/pre-zoom; scale to rendered space so
+    // they mix consistently with r/window.innerWidth/innerHeight below.
+    const pw = (pop.offsetWidth || 260) * zr;
+    const ph = (pop.offsetHeight || 200) * zr;
     let left = r.right + 14;
     let top  = r.top;
     if (left + pw > window.innerWidth - 8) {
@@ -108,8 +111,8 @@ function _show(modal) {
         if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 14);
       }
     }
-    pop.style.left = left + 'px';
-    pop.style.top  = top  + 'px';
+    pop.style.left = (left / zr) + 'px';
+    pop.style.top  = (top / zr) + 'px';
     pop.style.opacity = '';
     pop.classList.add('tour-hint-in');
   });

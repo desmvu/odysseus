@@ -13,6 +13,14 @@ import { nextToolWindowZ, topToolWindowZ } from './toolWindowZOrder.js';
 let toastEl = null;
 let autoScrollEnabled = true;
 let hoveredToggleCard = null;
+
+// CSS `zoom` (the "Larger" text-size setting) makes touch/mouse deltas
+// rendered/post-zoom pixels while `.style.*` writes stay authored/pre-zoom.
+// Divide a rendered delta by this ratio before writing it into a transform.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
 let hoveredToggleWindow = null;
 let hoveredDockChip = null;
 let _lastPointerClientX = null;
@@ -262,7 +270,7 @@ function _wireToastSwipe(el) {
     if (!t) return;
     currentX = t.clientX;
     const dx = currentX - startX;
-    el.style.transform = `translateX(${dx}px)`;
+    el.style.transform = `translateX(${dx / _zoomRatio()}px)`;
     // Fade as the toast leaves the rest position — visual cue for
     // approaching the dismiss threshold.
     el.style.opacity = String(Math.max(0.2, 1 - Math.abs(dx) / 200));
@@ -274,7 +282,8 @@ function _wireToastSwipe(el) {
     // Restore the transition so the next mutation animates.
     el.style.transition = '';
     if (Math.abs(dx) > DISMISS_PX) {
-      // Fling off in the drag direction, then hide.
+      // Fling off in the drag direction, then hide. A percentage value is
+      // resolution-independent — no zoom conversion needed here.
       el.style.transform = `translateX(${dx > 0 ? '120%' : '-120%'})`;
       el.style.opacity = '0';
       clearTimeout(el._hideTimer);
@@ -1051,11 +1060,12 @@ if ('ontouchstart' in window) {
     _lastT = e.timeStamp;
 
     e.preventDefault();
+    const _zr = _zoomRatio();
     if (dy > 0) {
-      _swipeTarget.style.transform = `translateY(${dy}px)`;
+      _swipeTarget.style.transform = `translateY(${dy / _zr}px)`;
     } else {
       const rubberDy = dy * RUBBER_RESISTANCE;
-      _swipeTarget.style.transform = `translateY(${rubberDy}px)`;
+      _swipeTarget.style.transform = `translateY(${rubberDy / _zr}px)`;
     }
   }, { passive: false });
 
@@ -1074,7 +1084,7 @@ if ('ontouchstart' in window) {
 
     if (shouldDismiss) {
       // Animate out — use remaining distance to calculate duration
-      const remaining = el.offsetHeight - dy;
+      const remaining = el.offsetHeight - dy / _zoomRatio();
       const speed = Math.max(Math.abs(_velocity), 0.8); // min speed
       const duration = Math.min(Math.max(remaining / speed, 120), 300);
       el.style.transition = `transform ${duration}ms cubic-bezier(0.2, 0, 0.4, 1)`;

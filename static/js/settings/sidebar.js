@@ -8,6 +8,14 @@ export const SETTINGS_SIDEBAR_COLLAPSE_THRESHOLD = 110;
 
 const _bound = new WeakSet();
 
+// CSS `zoom` (the "Larger" text-size setting) makes getBoundingClientRect()/
+// clientX rendered/post-zoom pixels while `.style.*` writes stay
+// authored/pre-zoom. Divide a rendered value by this ratio before writing.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 function clampWidth(value) {
   const width = Number(value);
   if (!Number.isFinite(width)) return SETTINGS_SIDEBAR_DEFAULT_WIDTH;
@@ -160,7 +168,7 @@ export function bindSettingsSidebar(modalEl) {
     window.removeEventListener('pointermove', onPointerMove);
     window.removeEventListener('pointerup', stopResize);
 
-    const width = sidebar.getBoundingClientRect().width;
+    const width = sidebar.getBoundingClientRect().width / _zoomRatio();
     if (width < SETTINGS_SIDEBAR_COLLAPSE_THRESHOLD) {
       setSettingsSidebarCollapsed(modalEl, true);
       return;
@@ -172,7 +180,9 @@ export function bindSettingsSidebar(modalEl) {
   }
 
   function onPointerMove(event) {
-    const rawWidth = startWidth + (event.clientX - startX);
+    // startWidth is captured as a rendered/post-zoom rect width; keep the
+    // whole computation in that space, then convert once at each write.
+    const rawWidth = (startWidth + (event.clientX - startX)) / _zoomRatio();
 
     if (rawWidth < SETTINGS_SIDEBAR_COLLAPSE_THRESHOLD) {
       sidebar.style.setProperty(
@@ -192,6 +202,7 @@ export function bindSettingsSidebar(modalEl) {
     event.preventDefault();
     startX = event.clientX;
     startWidth = sidebar.getBoundingClientRect().width;
+    // (kept in rendered/post-zoom space; onPointerMove converts once)
 
     sidebar.classList.remove('settings-sidebar-collapsed');
     sidebar.classList.add('settings-sidebar-resizing');
@@ -218,7 +229,7 @@ export function bindSettingsSidebar(modalEl) {
       setSettingsSidebarCollapsed(modalEl, false);
     }
 
-    const current = sidebar.getBoundingClientRect().width;
+    const current = sidebar.getBoundingClientRect().width / _zoomRatio();
     const delta = event.key === 'ArrowLeft' ? -16 : 16;
 
     // Once keyboard resizing reaches the declared minimum, another ArrowLeft

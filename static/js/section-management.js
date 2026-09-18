@@ -2,6 +2,14 @@
 // Section Management — collapse/expand + drag reorder
 // ============================================
 
+// CSS `zoom` (the "Larger" text-size setting) makes getBoundingClientRect()/
+// clientX/clientY rendered/post-zoom pixels while `.style.*` writes stay
+// authored/pre-zoom. Divide a post-zoom value by this ratio before writing.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 /**
  * Initialize section collapse/expand with chevron buttons.
  * @param {Object} Storage - Storage module
@@ -150,6 +158,7 @@ export function initSectionDrag(Storage, loadUIVis) {
     e.preventDefault();
 
     const rect = section.getBoundingClientRect();
+    const zr = _zoomRatio();
     offsetY = e.clientY - rect.top;
     draggedSection = section;
 
@@ -157,7 +166,7 @@ export function initSectionDrag(Storage, loadUIVis) {
     placeholder = document.createElement('div');
     placeholder.className = 'section-placeholder';
     placeholder.style.cssText = `
-      height: ${rect.height}px;
+      height: ${rect.height / zr}px;
       margin: 4px 0;
       border: 2px dashed rgba(0, 170, 255, 0.5);
       border-radius: 8px;
@@ -168,9 +177,9 @@ export function initSectionDrag(Storage, loadUIVis) {
     // Float the section
     Object.assign(section.style, {
       position: 'fixed',
-      width: rect.width + 'px',
-      left: rect.left + 'px',
-      top: rect.top + 'px',
+      width: (rect.width / zr) + 'px',
+      left: (rect.left / zr) + 'px',
+      top: (rect.top / zr) + 'px',
       zIndex: '9999',
       opacity: '0.95',
       boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
@@ -186,7 +195,7 @@ export function initSectionDrag(Storage, loadUIVis) {
     if (!draggedSection) return;
 
     // Only move vertically - horizontal stays locked
-    draggedSection.style.top = (e.clientY - offsetY) + 'px';
+    draggedSection.style.top = ((e.clientY - offsetY) / _zoomRatio()) + 'px';
 
     const sections = getSections().filter(s => s !== draggedSection);
     const dragRect = draggedSection.getBoundingClientRect();
@@ -228,7 +237,7 @@ export function initSectionDrag(Storage, loadUIVis) {
     // Snap to placeholder - fast!
     const phRect = placeholder.getBoundingClientRect();
     draggedSection.style.transition = 'top 0.08s ease-out';
-    draggedSection.style.top = phRect.top + 'px';
+    draggedSection.style.top = (phRect.top / _zoomRatio()) + 'px';
 
     setTimeout(() => {
       placeholder.parentNode.insertBefore(draggedSection, placeholder);

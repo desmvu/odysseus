@@ -18,6 +18,16 @@ import signatureModule from './signature.js';
 import * as Modals from './modalManager.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
+// The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
+// `zoom`, which splits getBoundingClientRect()/clientX/clientY/innerWidth/
+// innerHeight (rendered/post-zoom pixels) from offsetWidth/offsetHeight and
+// any `.style.*` assignment (authored/pre-zoom pixels). Divide a post-zoom
+// value by this ratio right before writing it into a style property.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
   let API_BASE = '';
   let isOpen = false;
   let _hlDebounce = null;
@@ -3224,12 +3234,13 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
   function _positionOdysseusAttachMenu(anchor, menu) {
     const r = anchor?.getBoundingClientRect?.();
     if (!r) return;
-    menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 310))}px`;
-    menu.style.top = `${r.bottom + 6}px`;
+    const zr = _zoomRatio();
+    menu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 310)) / zr}px`;
+    menu.style.top = `${(r.bottom + 6) / zr}px`;
     requestAnimationFrame(() => {
       const mr = menu.getBoundingClientRect();
       if (mr.bottom > window.innerHeight - 8) {
-        menu.style.top = `${Math.max(8, r.top - mr.height - 6)}px`;
+        menu.style.top = `${Math.max(8, r.top - mr.height - 6) / zr}px`;
       }
     });
   }
@@ -4152,11 +4163,12 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
     const top = (spaceBelow >= estHeight || spaceBelow >= spaceAbove)
       ? Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - estHeight - 8))
       : Math.max(8, rect.top - estHeight - 6);
+    const zr = _zoomRatio();
     menu.style.cssText = [
       'position:fixed',
-      `left:${left}px`,
-      `top:${top}px`,
-      `max-width:${menuMaxW}px`,
+      `left:${left / zr}px`,
+      `top:${top / zr}px`,
+      `max-width:${menuMaxW / zr}px`,
       'box-sizing:border-box',
       'z-index:10060',
       'display:flex',
@@ -4369,8 +4381,9 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
     if (modalContent && anchor) {
       const rect = anchor.getBoundingClientRect();
       const gap = 8;
+      const zr = _zoomRatio();
       const width = Math.min(400, Math.max(280, window.innerWidth - 16));
-      modalContent.style.width = `${width}px`;
+      modalContent.style.width = `${width / zr}px`;
       modalContent.style.position = 'fixed';
       modalContent.style.margin = '0';
       modalContent.style.transform = 'none';
@@ -4380,8 +4393,8 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
       const top = belowTop + estimatedHeight <= window.innerHeight - 8
         ? belowTop
         : Math.max(8, rect.top - estimatedHeight - gap);
-      modalContent.style.left = `${left}px`;
-      modalContent.style.top = `${top}px`;
+      modalContent.style.left = `${left / zr}px`;
+      modalContent.style.top = `${top / zr}px`;
     }
 
     const dtInput = overlay.querySelector('#sched-datetime');
@@ -6516,9 +6529,10 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
     menu.id = 'doc-md-dd-menu';
     menu.dataset.dd = kind;
     menu.className = 'doc-overflow-menu open';
+    const _zr = _zoomRatio();
     menu.style.position = 'fixed';
-    menu.style.top = (rect.bottom + 4) + 'px';
-    menu.style.left = rect.left + 'px';
+    menu.style.top = ((rect.bottom + 4) / _zr) + 'px';
+    menu.style.left = (rect.left / _zr) + 'px';
     menu.style.zIndex = '9999';
     items.forEach(([md, label, ico]) => {
       const it = document.createElement('button');
@@ -6663,9 +6677,10 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
         if (_mdMenuOpen) {
           document.body.appendChild(overflowMenu);
           const rect = overflowToggle.getBoundingClientRect();
+          const zr = _zoomRatio();
           overflowMenu.style.position = 'fixed';
-          overflowMenu.style.top = (rect.bottom + 2) + 'px';
-          overflowMenu.style.right = (window.innerWidth - rect.right) + 'px';
+          overflowMenu.style.top = ((rect.bottom + 2) / zr) + 'px';
+          overflowMenu.style.right = ((window.innerWidth - rect.right) / zr) + 'px';
           overflowMenu.style.left = 'auto';
         } else {
           overflowWrapper.appendChild(overflowMenu);
@@ -6803,9 +6818,10 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
         // Move to body to escape overflow:hidden on doc-editor-pane
         document.body.appendChild(menu);
         const rect = toggle.getBoundingClientRect();
+        const zr = _zoomRatio();
         menu.style.position = 'fixed';
-        menu.style.top = (rect.bottom + 2) + 'px';
-        menu.style.right = (window.innerWidth - rect.right) + 'px';
+        menu.style.top = ((rect.bottom + 2) / zr) + 'px';
+        menu.style.right = ((window.innerWidth - rect.right) / zr) + 'px';
         menu.style.left = 'auto';
       } else {
         wrapper.appendChild(menu);
@@ -6843,7 +6859,8 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
       const width = isRight
         ? e.clientX
         : window.innerWidth - e.clientX;
-      pane.style.width = Math.max(250, Math.min(width, window.innerWidth * 0.7)) + 'px';
+      const clamped = Math.max(250, Math.min(width, window.innerWidth * 0.7));
+      pane.style.width = (clamped / _zoomRatio()) + 'px';
       pane.style.flex = 'none';
     });
     document.addEventListener('mouseup', () => {
@@ -8343,20 +8360,25 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
       const lineH = parseFloat(getComputedStyle(textarea).lineHeight) || 20;
       const textareaRect = textarea.getBoundingClientRect();
       const paddingTop = parseFloat(getComputedStyle(textarea).paddingTop) || 10;
-      const rawTop = textareaRect.top + paddingTop + (linesBefore * lineH) - textarea.scrollTop;
+      const zr = _zoomRatio();
+      // textareaRect.top is rendered/post-zoom; paddingTop/lineH/scrollTop
+      // are authored/pre-zoom — scale the pre-zoom deltas up to rendered
+      // space before combining, then divide the final result once at the
+      // style write.
+      const rawTop = textareaRect.top + (paddingTop + (linesBefore * lineH) - textarea.scrollTop) * zr;
       const clampedTop = Math.max(60, Math.min(rawTop, window.innerHeight - 220));
       card.style.position = 'fixed';
-      card.style.top = clampedTop + 'px';
+      card.style.top = (clampedTop / zr) + 'px';
 
       const paneRect = pane.getBoundingClientRect();
       const isMobile = window.innerWidth <= 768;
       if (!isMobile) {
         if (paneRect.right + 270 < window.innerWidth) {
-          card.style.left = (paneRect.right + 16) + 'px';
+          card.style.left = ((paneRect.right + 16) / zr) + 'px';
           card.style.right = '';
         } else {
           card.style.left = '';
-          card.style.right = (window.innerWidth - paneRect.left + 16) + 'px';
+          card.style.right = ((window.innerWidth - paneRect.left + 16) / zr) + 'px';
         }
       }
 
@@ -9244,22 +9266,23 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
     const rect = _menuAnchorRect;
     const tabBar = document.getElementById('doc-tab-bar');
     const barBottom = tabBar ? tabBar.getBoundingClientRect().bottom : rect.bottom;
+    const _zr = _zoomRatio();
     _docTabMenu.style.position = 'fixed';
     _docTabMenu.style.zIndex = '1000';
-    _docTabMenu.style.left = rect.left + 'px';
-    _docTabMenu.style.top = (barBottom + 2) + 'px';
+    _docTabMenu.style.left = (rect.left / _zr) + 'px';
+    _docTabMenu.style.top = ((barBottom + 2) / _zr) + 'px';
 
     // Clamp to viewport edges
     requestAnimationFrame(() => {
       const menuRect = _docTabMenu.getBoundingClientRect();
       if (menuRect.right > window.innerWidth - 8) {
-        _docTabMenu.style.left = (window.innerWidth - menuRect.width - 8) + 'px';
+        _docTabMenu.style.left = ((window.innerWidth - menuRect.width - 8) / _zr) + 'px';
       }
       if (menuRect.left < 8) {
-        _docTabMenu.style.left = '8px';
+        _docTabMenu.style.left = (8 / _zr) + 'px';
       }
       if (menuRect.bottom > window.innerHeight - 8) {
-        _docTabMenu.style.top = (barBottom - menuRect.height - 4) + 'px';
+        _docTabMenu.style.top = ((barBottom - menuRect.height - 4) / _zr) + 'px';
       }
     });
 
@@ -9639,9 +9662,10 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
     const menu = document.createElement('div');
     menu.id = 'doc-export-menu';
     menu.className = 'doc-overflow-menu open';
+    const _zr = _zoomRatio();
     menu.style.position = 'fixed';
-    menu.style.top = (rect.bottom + 2) + 'px';
-    menu.style.right = (window.innerWidth - rect.right) + 'px';
+    menu.style.top = ((rect.bottom + 2) / _zr) + 'px';
+    menu.style.right = ((window.innerWidth - rect.right) / _zr) + 'px';
     menu.style.left = 'auto';
     menu.style.zIndex = '9999';
 
@@ -9681,10 +9705,10 @@ import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
     document.body.appendChild(menu);
     // Flip above the anchor when there's no room below — the Export button now
     // lives in the bottom footer, so the menu would otherwise drop off-screen.
-    const mh = menu.offsetHeight;
+    const mh = menu.offsetHeight * _zr;
     if (rect.bottom + mh > window.innerHeight - 8) {
       menu.style.top = 'auto';
-      menu.style.bottom = (window.innerHeight - rect.top + 2) + 'px';
+      menu.style.bottom = ((window.innerHeight - rect.top + 2) / _zr) + 'px';
     }
     // Outside-click AND Escape both route through the central esc-stack via
     // bindMenuDismiss; onClose owns the actual node removal.

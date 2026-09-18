@@ -1165,13 +1165,14 @@ function _prepareEmailWindowForDocument(modal) {
     document.documentElement.style.removeProperty('--left-dock-w');
     if (content) {
       delete content._dockSide;
+      const _zr = _zoomRatio();
       content.style.position = 'fixed';
-      content.style.left = Math.round(rect?.left || _emailSplitLeftEdge()) + 'px';
+      content.style.left = Math.round((rect?.left || _emailSplitLeftEdge()) / _zr) + 'px';
       content.style.top = '0';
       content.style.right = 'auto';
       content.style.bottom = '0';
-      content.style.width = Math.round(rect?.width || 440) + 'px';
-      content.style.maxWidth = Math.round(rect?.width || 440) + 'px';
+      content.style.width = Math.round((rect?.width || 440) / _zr) + 'px';
+      content.style.maxWidth = Math.round((rect?.width || 440) / _zr) + 'px';
       content.style.height = '100vh';
       content.style.maxHeight = '100vh';
       content.style.borderRadius = '0';
@@ -1181,7 +1182,10 @@ function _prepareEmailWindowForDocument(modal) {
   }
   if (modal.classList.contains('email-snap-left') || modal.classList.contains('modal-left-docked')) {
     const rect = modal.querySelector('.modal-content')?.getBoundingClientRect?.();
-    _setEmailDocumentSplit(rect?.left || _emailSplitLeftEdge(), rect?.width || 420);
+    // rect is rendered/post-zoom; _setEmailDocumentSplit writes CSS custom
+    // properties consumed in authored/pre-zoom space, so convert here.
+    const _zr = _zoomRatio();
+    _setEmailDocumentSplit((rect?.left || _emailSplitLeftEdge()) / _zr, (rect?.width || 420) / _zr);
     _scheduleEmailDocumentSplitMeasure(modal);
     return false;
   }
@@ -1280,7 +1284,7 @@ function _animateEmailCardRemoval(uids, opts = {}) {
 
   for (const card of cards) {
     const rect = card.getBoundingClientRect();
-    card.style.setProperty('--email-remove-h', `${Math.max(rect.height, card.scrollHeight)}px`);
+    card.style.setProperty('--email-remove-h', `${Math.max(rect.height / _zoomRatio(), card.scrollHeight)}px`);
     card.style.maxHeight = 'var(--email-remove-h)';
     card.style.overflow = 'hidden';
     card.classList.add('email-card-removing');
@@ -2069,7 +2073,7 @@ function _initMobileEmailPullRefresh() {
   function setPull(px, active = false) {
     pullY = Math.max(0, Math.min(MAX_PULL, px));
     const pct = Math.min(1, pullY / THRESHOLD);
-    indicator.style.setProperty('--pull-refresh-y', `${pullY}px`);
+    indicator.style.setProperty('--pull-refresh-y', `${pullY / _zoomRatio()}px`);
     indicator.style.setProperty('--pull-refresh-progress', `${pct}`);
     indicator.classList.toggle('is-visible', active || refreshing || pullY > 2);
     indicator.classList.toggle('is-ready', pct >= 1 && !refreshing);
@@ -2777,10 +2781,11 @@ export function openEmailLibrary(opts = {}) {
       // while the email list is still loading and put the window ~1/3 down
       // (then it grew off the bottom as the list filled in).
       requestAnimationFrame(() => {
-        const w = content.offsetWidth;
+        const zr = _zoomRatio();
+        const w = content.offsetWidth * zr;
         const refH = window.innerHeight * 0.85;
-        content.style.left = Math.max(20, (window.innerWidth - w) / 2) + 'px';
-        content.style.top = Math.max(20, (window.innerHeight - refH) / 2) + 'px';
+        content.style.left = (Math.max(20, (window.innerWidth - w) / 2) / zr) + 'px';
+        content.style.top = (Math.max(20, (window.innerHeight - refH) / 2) / zr) + 'px';
         content.style.transform = 'none';
       });
     }
@@ -2978,7 +2983,7 @@ export function openEmailLibrary(opts = {}) {
       const card = _fab.parentElement;            // .admin-card (positioned)
       const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
       const overflowBelow = card ? Math.max(0, Math.round(card.getBoundingClientRect().bottom - vh)) : 0;
-      _fab.style.bottom = `calc(18px + env(safe-area-inset-bottom, 0px) + ${overflowBelow}px)`;
+      _fab.style.bottom = `calc(18px + env(safe-area-inset-bottom, 0px) + ${overflowBelow / _zoomRatio()}px)`;
     }
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', _positionFab);
@@ -3410,9 +3415,10 @@ function _makeDraggable(content, modal, fsClass) {
     content.style.borderRadius = '';
     content.style.right = '';
     content.style.bottom = '';
+    const zr = _zoomRatio();
     const w = Math.min(720, window.innerWidth * 0.92);
-    content.style.left = Math.max(8, cx - w / 2) + 'px';
-    content.style.top = Math.max(8, cy - 20) + 'px';
+    content.style.left = (Math.max(8, cx - w / 2) / zr) + 'px';
+    content.style.top = (Math.max(8, cy - 20) / zr) + 'px';
   };
   makeWindowDraggable(modal, {
     content,
@@ -3424,14 +3430,15 @@ function _makeDraggable(content, modal, fsClass) {
       if (!modal.classList.contains('email-snap-left')) return;
       modal.classList.remove('email-snap-left');
       _clearEmailDocumentSplit();
+      const zr = _zoomRatio();
       content.style.position = 'fixed';
-      content.style.left = `${Math.round(rect.left)}px`;
-      content.style.top = `${Math.round(rect.top)}px`;
+      content.style.left = `${Math.round(rect.left / zr)}px`;
+      content.style.top = `${Math.round(rect.top / zr)}px`;
       content.style.right = '';
       content.style.bottom = '';
-      content.style.width = `${Math.max(420, Math.round(rect.width || 560))}px`;
+      content.style.width = `${Math.max(420, Math.round((rect.width || 560) / zr))}px`;
       content.style.maxWidth = '';
-      content.style.height = `${Math.max(320, Math.round(rect.height || 620))}px`;
+      content.style.height = `${Math.max(320, Math.round((rect.height || 620) / zr))}px`;
       content.style.maxHeight = '85vh';
       content.style.borderRadius = '';
       content.style.transform = 'none';
@@ -3466,6 +3473,7 @@ function _snapEmailModalToLeftSidebar(modal) {
   modal.classList.remove('email-lib-fullscreen');
   modal.classList.remove('email-window-fullscreen');
   modal.classList.add('email-snap-left');
+  const zr = _zoomRatio();
   const W = Math.min(440, Math.max(360, Math.round(window.innerWidth * 0.30)));
   const left = _emailSplitLeftEdge();
   content.style.position = 'fixed';
@@ -3473,14 +3481,17 @@ function _snapEmailModalToLeftSidebar(modal) {
   content.style.top = '0';
   content.style.right = '';
   content.style.bottom = '0';
-  content.style.width = W + 'px';
-  content.style.maxWidth = W + 'px';
+  content.style.width = (W / zr) + 'px';
+  content.style.maxWidth = (W / zr) + 'px';
   content.style.height = '100vh';
   content.style.maxHeight = '100vh';
   content.style.borderRadius = '0';
   content.style.transform = 'none';
   content.style.margin = '0';
-  _setEmailDocumentSplit(left, W);
+  // left is already authored/pre-zoom (read from CSS custom properties);
+  // only W (derived from window.innerWidth, rendered/post-zoom) needs
+  // conversion.
+  _setEmailDocumentSplit(left, W / zr);
   _scheduleEmailDocumentSplitMeasure(modal);
   return true;
 }
@@ -5480,7 +5491,7 @@ async function _toggleCardPreview(card, em) {
 
   card.classList.add('email-card-expanded');
   card.classList.add('doclib-card-expanded');
-  card.style.minHeight = `${Math.round(stableOpenHeight)}px`;
+  card.style.minHeight = `${Math.round(stableOpenHeight / _zoomRatio())}px`;
   // Pull the card into view in case the user clicked an email further up
   // the list whose top is partially scrolled off the viewport. Wait for
   // the layout to settle (minHeight just changed) before scrolling so
@@ -5497,14 +5508,14 @@ async function _toggleCardPreview(card, em) {
   // browsers without :has() support (Firefox mobile) — the :has() versions
   // below stay as the desktop path.
   if (modal && modalRect?.height) {
-    modal.style.setProperty('--email-reading-modal-min-h', `${Math.round(modalRect.height)}px`);
+    modal.style.setProperty('--email-reading-modal-min-h', `${Math.round(modalRect.height / _zoomRatio())}px`);
   }
   modal?.classList.add('email-reading');
 
   // Show loading reader with whirlpool spinner
   const reader = document.createElement('div');
   reader.className = 'email-card-reader email-card-reader-loading';
-  reader.style.minHeight = `${Math.max(180, Math.round(stableOpenHeight - 70))}px`;
+  reader.style.minHeight = `${Math.max(180, Math.round(stableOpenHeight / _zoomRatio() - 70))}px`;
   reader.innerHTML = _emailReaderSkeletonHtml();
   card.appendChild(reader);
   _markEmailReaderActive(reader);
@@ -7959,7 +7970,8 @@ function _showCardMenu(em, anchor) {
   const dropdown = document.createElement('div');
   dropdown.className = 'email-card-dropdown';
   const rect = anchor.getBoundingClientRect();
-  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:140px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${rect.bottom + 4}px;right:${window.innerWidth - rect.right}px;`;
+  const _zr = _zoomRatio();
+  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:140px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${(rect.bottom + 4) / _zr}px;right:${(window.innerWidth - rect.right) / _zr}px;`;
 
   const _icon = (svg) => `<span class="dropdown-icon">${svg}</span>`;
   const _replyIcon = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></svg>';
@@ -8166,7 +8178,8 @@ function _showBulkActionsMenu(anchor) {
   const dropdown = document.createElement('div');
   dropdown.className = 'email-card-dropdown email-bulk-menu';
   const rect = anchor.getBoundingClientRect();
-  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:160px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${rect.bottom + 4}px;left:${rect.left}px;`;
+  const _zr = _zoomRatio();
+  dropdown.style.cssText = `position:fixed;z-index:${topPortalZ()};min-width:160px;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:4px;font-size:12px;top:${(rect.bottom + 4) / _zr}px;left:${rect.left / _zr}px;`;
   const _readIco = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="m22 2-7 20-4-9-9-4 20-7z"/></svg>';
   const _unreadIco = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>';
   const _doneIco = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -8465,12 +8478,13 @@ function _showAiReplyChoice(btn, em, data) {
   } else {
     top = Math.max(8, rect.top - estHeight - 6);
   }
+  const _zr = _zoomRatio();
   menu.style.cssText = [
     'position:fixed',
-    `left:${left}px`,
-    `top:${top}px`,
-    `max-width:${menuMaxW}px`,
-    `max-height:${window.innerHeight - 16}px`,
+    `left:${left / _zr}px`,
+    `top:${top / _zr}px`,
+    `max-width:${menuMaxW / _zr}px`,
+    `max-height:${(window.innerHeight - 16) / _zr}px`,
     'overflow:auto',
     'box-sizing:border-box',
     `z-index:${topPortalZ()}`,

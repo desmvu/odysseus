@@ -12,6 +12,14 @@
  */
 import { shortcutsPopupHTML } from './build/popups.js';
 
+// CSS `zoom` (the "Larger" text-size setting) makes pointer/rect
+// measurement (rendered pixels) diverge from `.style.*` writes (authored
+// pixels). Divide a rendered value by this ratio before writing it.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 export function createShortcutsPopover() {
   let pop = null;
   let outside = null;
@@ -62,8 +70,9 @@ export function createShortcutsPopover() {
         const m = 4;
         left = Math.max(m, Math.min(left, window.innerWidth  - drag.w - m));
         top  = Math.max(m, Math.min(top,  window.innerHeight - drag.h - m));
-        el.style.left = left + 'px';
-        el.style.top  = top + 'px';
+        const zr = _zoomRatio();
+        el.style.left = (left / zr) + 'px';
+        el.style.top  = (top / zr) + 'px';
       });
       const endDrag = () => {
         if (!drag) return;
@@ -94,8 +103,9 @@ export function createShortcutsPopover() {
     if (top < margin) top = ar.bottom + margin;
     left = Math.max(margin, Math.min(left, window.innerWidth - pr.width - margin));
     top  = Math.max(margin, Math.min(top, window.innerHeight - pr.height - margin));
-    el.style.left = left + 'px';
-    el.style.top  = top + 'px';
+    const zr = _zoomRatio();
+    el.style.left = (left / zr) + 'px';
+    el.style.top  = (top / zr) + 'px';
   }
 
   function toggleShortcuts(show) {
@@ -114,10 +124,11 @@ export function createShortcutsPopover() {
         requestAnimationFrame(() => {
           const r = el.getBoundingClientRect();
           const m = 4;
-          if (r.right > window.innerWidth)  el.style.left = (window.innerWidth - r.width - m) + 'px';
-          if (r.bottom > window.innerHeight) el.style.top = (window.innerHeight - r.height - m) + 'px';
-          if (r.left < 0) el.style.left = m + 'px';
-          if (r.top  < 0) el.style.top  = m + 'px';
+          const zr = _zoomRatio();
+          if (r.right > window.innerWidth)  el.style.left = ((window.innerWidth - r.width - m) / zr) + 'px';
+          if (r.bottom > window.innerHeight) el.style.top = ((window.innerHeight - r.height - m) / zr) + 'px';
+          if (r.left < 0) el.style.left = (m / zr) + 'px';
+          if (r.top  < 0) el.style.top  = (m / zr) + 'px';
         });
       } else {
         const anchor = document.getElementById('ge-shortcuts-btn');

@@ -973,13 +973,17 @@ async function _expandSkillCard(card, name) {
     // under-sizes it. So bail on desktop and let the CSS handle it.
     if (!window.matchMedia('(max-width: 768px)').matches) return;
 
-    const cardH = card.getBoundingClientRect().height;
+    // getBoundingClientRect() heights are rendered/post-zoom; getComputedStyle
+    // padding values are authored/pre-zoom — convert every rect height to
+    // pre-zoom immediately so they can be safely mixed and written to style.
+    const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    const cardH = card.getBoundingClientRect().height / zr;
     if (cardH <= 0) return;
     card.style.setProperty('height', cardH + 'px', 'important');
     if (!preview) return;
 
     const px = (el, prop) => parseFloat(getComputedStyle(el)[prop]) || 0;
-    const headerH = header ? header.getBoundingClientRect().height : 0;
+    const headerH = header ? header.getBoundingClientRect().height / zr : 0;
     const cardPad = px(card, 'paddingTop') + px(card, 'paddingBottom');
     const previewH = Math.max(0, cardH - headerH - cardPad);
     // Force the preview to an explicit height (flex:none so nothing fights it).
@@ -993,7 +997,7 @@ async function _expandSkillCard(card, name) {
       const prevPad = px(preview, 'paddingTop') + px(preview, 'paddingBottom');
       let siblings = 0;
       for (const child of preview.children) {
-        if (child !== pre) siblings += child.getBoundingClientRect().height;
+        if (child !== pre) siblings += child.getBoundingClientRect().height / zr;
       }
       const preH = Math.max(0, previewH - prevPad - siblings);
       pre.style.setProperty('height', preH + 'px', 'important');

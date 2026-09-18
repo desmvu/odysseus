@@ -22,6 +22,14 @@ import modalManager from '../modalManager.js';
 import { HISTORY_ICON, relTime } from './layer-helpers.js';
 import { historyPanelHTML } from './build/popups.js';
 
+// CSS `zoom` (the "Larger" text-size setting) makes getBoundingClientRect()/
+// clientX/clientY rendered/post-zoom pixels while `.style.*` writes stay
+// authored/pre-zoom. Divide a rendered value by this ratio before writing.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 export function createHistoryPanel({ undo, redo }) {
   function jumpToHistory(offset) {
     if (offset === 0) return;
@@ -49,8 +57,9 @@ export function createHistoryPanel({ undo, redo }) {
     if (!state.historyPanelEl) return;
     const panel = state.historyPanelEl;
     const r = panel.getBoundingClientRect();
-    panel._stashLeft = r.left;
-    panel._stashTop  = r.top;
+    const _zr = _zoomRatio();
+    panel._stashLeft = r.left / _zr;
+    panel._stashTop  = r.top / _zr;
     panel.style.display = 'none';
     state.historyPanelEl = null;
     const modalId = panel._modalId || 'ge-history-panel-min';
@@ -84,8 +93,9 @@ export function createHistoryPanel({ undo, redo }) {
     const btn = document.getElementById('ge-history-btn');
     if (btn) {
       const r = btn.getBoundingClientRect();
-      panel.style.top  = (r.bottom + 6) + 'px';
-      panel.style.left = Math.max(8, r.left) + 'px';
+      const _zr = _zoomRatio();
+      panel.style.top  = ((r.bottom + 6) / _zr) + 'px';
+      panel.style.left = (Math.max(8, r.left) / _zr) + 'px';
     }
     panel.querySelector('.ge-adj-min').addEventListener('click', minimiseHistoryPanel);
     // Click anywhere outside the panel (or trigger button) closes it.
@@ -112,8 +122,9 @@ export function createHistoryPanel({ undo, redo }) {
       const onMove = (ev) => {
         const nx = Math.max(0, Math.min(window.innerWidth - 60, r0.left + (ev.clientX - startX)));
         const ny = Math.max(0, Math.min(window.innerHeight - 30, r0.top  + (ev.clientY - startY)));
-        panel.style.left = nx + 'px';
-        panel.style.top  = ny + 'px';
+        const zr = _zoomRatio();
+        panel.style.left = (nx / zr) + 'px';
+        panel.style.top  = (ny / zr) + 'px';
       };
       const onUp = () => {
         head.releasePointerCapture(e.pointerId);

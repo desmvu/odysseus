@@ -65,7 +65,7 @@ export function wireSliderUx({ registerDocClickAway }) {
   function showSliderBubble(slider, e) {
     if (sliderBubble.parentElement !== document.body) document.body.appendChild(sliderBubble);
     sliderBubble.textContent = bubbleText(slider);
-    bubblePos(slider, e ? e.clientX : slider.getBoundingClientRect().left + slider.offsetWidth / 2);
+    bubblePos(slider, e ? e.clientX : slider.getBoundingClientRect().left + slider.getBoundingClientRect().width / 2);
     sliderBubble.hidden = false;
     sliderBubble.classList.add('visible');
     sliderBubbleSlider = slider;
@@ -163,9 +163,10 @@ export function wireSliderUx({ registerDocClickAway }) {
     // Position the input over where the chip sits.
     const crect = chip.getBoundingClientRect();
     const rrect = row.getBoundingClientRect();
-    inp.style.left = (crect.left - rrect.left) + 'px';
-    inp.style.top = (crect.top - rrect.top - 1) + 'px';
-    inp.style.width = Math.max(40, crect.width + 8) + 'px';
+    const _zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    inp.style.left = ((crect.left - rrect.left) / _zr) + 'px';
+    inp.style.top = ((crect.top - rrect.top - 1) / _zr) + 'px';
+    inp.style.width = (Math.max(40, crect.width + 8) / _zr) + 'px';
     inp.focus();
     inp.select();
     const commit = () => {

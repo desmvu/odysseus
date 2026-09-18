@@ -345,9 +345,10 @@ async function _addPane(anchorBtn) {
   // Render off-screen first so we can measure the dropdown's actual size.
   // Clamp the width to the viewport up front so long model names can't push
   // the dropdown off the screen edge, and lift z-index above the panes.
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
   dropdown.style.left = '-9999px';
   dropdown.style.top = '0';
-  dropdown.style.maxWidth = (vw - margin * 2) + 'px';
+  dropdown.style.maxWidth = ((vw - margin * 2) / zr) + 'px';
   dropdown.style.zIndex = '100000';
   document.body.appendChild(dropdown);
   const ddRect = dropdown.getBoundingClientRect();
@@ -367,11 +368,11 @@ async function _addPane(anchorBtn) {
   } else {
     top = Math.max(margin, btnRect.top - 4 - ddH);
   }
-  dropdown.style.left = left + 'px';
-  dropdown.style.top = top + 'px';
+  dropdown.style.left = (left / zr) + 'px';
+  dropdown.style.top = (top / zr) + 'px';
   dropdown.style.right = 'auto';
   dropdown.style.bottom = 'auto';
-  dropdown.style.maxHeight = Math.min(ddH, vh - margin * 2) + 'px';
+  dropdown.style.maxHeight = (Math.min(ddH, vh - margin * 2) / zr) + 'px';
 
   // Close on outside click or Escape (the latter via the registry).
   closeMenu = bindMenuDismiss(dropdown, () => dropdown.remove(), (e) => !dropdown.contains(e.target) && e.target !== anchorBtn);}
@@ -628,9 +629,10 @@ function _showModelSwapDropdown(paneIdx, titleBtn) {
   // screen edge on mobile (matches the "+" add-pane picker behaviour).
   const rect = titleBtn.getBoundingClientRect();
   const vw = window.innerWidth, vh = window.innerHeight, margin = 8;
+  const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
   dropdown.style.position = 'fixed';
   dropdown.style.zIndex = '100000';
-  dropdown.style.maxWidth = (vw - margin * 2) + 'px';
+  dropdown.style.maxWidth = ((vw - margin * 2) / zr) + 'px';
   dropdown.style.overflowY = 'auto';
   dropdown.style.left = '-9999px';
   dropdown.style.top = '0';
@@ -647,9 +649,9 @@ function _showModelSwapDropdown(paneIdx, titleBtn) {
   } else {
     top = Math.max(margin, rect.top - 4 - ddH);
   }
-  dropdown.style.left = left + 'px';
-  dropdown.style.top = top + 'px';
-  dropdown.style.maxHeight = Math.min(ddH, vh - margin * 2) + 'px';
+  dropdown.style.left = (left / zr) + 'px';
+  dropdown.style.top = (top / zr) + 'px';
+  dropdown.style.maxHeight = (Math.min(ddH, vh - margin * 2) / zr) + 'px';
 
   // Close on outside click or Escape (the latter via the registry).
   closeMenu = bindMenuDismiss(dropdown, () => dropdown.remove(), (e) => !dropdown.contains(e.target) && e.target !== titleBtn);}

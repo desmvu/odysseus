@@ -36,6 +36,14 @@ import {
   attachSpinRepeat,
 } from '../build/transform-popup.js';
 
+// CSS `zoom` (the "Larger" text-size setting) makes getBoundingClientRect()/
+// clientX/clientY rendered/post-zoom pixels while `.style.*` writes stay
+// authored/pre-zoom. Divide a rendered value by this ratio before writing.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 export function createTransformSession({
   activeLayer, saveState, composite, fitZoom, drawTransformHandles,
   showCanvasLoading, hideCanvasLoading, undo, uiModule,
@@ -233,16 +241,20 @@ export function createTransformSession({
     const NON_DRAG = 'input,button,select,textarea,a,[contenteditable]';
 
     const setPos = (x, y) => {
+      // x/y are computed from rendered/post-zoom rects and pointer deltas;
+      // convert once here before writing to authored-space style properties.
+      const zr = _zoomRatio();
+      const px = x / zr, py = y / zr;
       if (isMobile) {
-        pop.style.setProperty('left', x + 'px', 'important');
-        pop.style.setProperty('top', y + 'px', 'important');
+        pop.style.setProperty('left', px + 'px', 'important');
+        pop.style.setProperty('top', py + 'px', 'important');
         pop.style.setProperty('right', 'auto', 'important');
         pop.style.setProperty('bottom', 'auto', 'important');
         pop.style.setProperty('width', 'auto', 'important');
         pop.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
       } else {
-        pop.style.left = x + 'px';
-        pop.style.top = y + 'px';
+        pop.style.left = px + 'px';
+        pop.style.top = py + 'px';
         pop.style.right = 'auto';
       }
     };

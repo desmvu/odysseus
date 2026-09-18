@@ -213,8 +213,9 @@ function handleVote(winnerIdx) {
     const titleEl = document.getElementById('cmp-title-' + winnerIdx);
     if (titleEl) {
       const rect = titleEl.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
+      const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+      const cx = (rect.left + rect.width / 2) / zr;
+      const cy = (rect.top + rect.height / 2) / zr;
       spawnConfetti(cx, cy, 50);
       setTimeout(() => spawnConfetti(cx - 30, cy, 25), 150);
       setTimeout(() => spawnConfetti(cx + 30, cy, 25), 300);

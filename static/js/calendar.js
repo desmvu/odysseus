@@ -1419,7 +1419,7 @@ async function _renderWeek() {
 
       // Where did the cursor grab the block? (offset from block-top in px)
       const blockRect = block.getBoundingClientRect();
-      const grabOffsetPx = e.clientY - blockRect.top;
+      const grabOffsetPx = (e.clientY - blockRect.top) / _zoomRatio();
 
       // Ghost that follows the cursor across columns.
       const ghost = block.cloneNode(true);
@@ -1462,7 +1462,8 @@ async function _renderWeek() {
         if (!cur) return;
         _attachGhost(cur);
         const r = cur.getBoundingClientRect();
-        const yIn = Math.max(0, Math.min(cur.clientHeight, mv.clientY - r.top));
+        const zr = _zoomRatio();
+        const yIn = Math.max(0, Math.min(cur.clientHeight, (mv.clientY - r.top) / zr));
         // Subtract the grab offset so the cursor stays at the same spot
         // inside the block as you drag it around.
         const blockTopY = yIn - grabOffsetPx;
@@ -1540,7 +1541,7 @@ async function _renderWeek() {
       let resized = false;
       const onMove = (mv) => {
         resized = true;
-        const y = Math.max(0, Math.min(grid.clientHeight, mv.clientY - gridRect.top));
+        const y = Math.max(0, Math.min(grid.clientHeight, (mv.clientY - gridRect.top) / _zoomRatio()));
         // Snap to 15-min increments; enforce a 15-min minimum duration.
         newEndMin = Math.max(startMin + 15, Math.round(_wkPxToMin(y) / 15) * 15);
         const newHeight = Math.max(18, (newEndMin - startMin) * (WEEK_HOUR_PX / 60));
@@ -1588,12 +1589,12 @@ async function _renderWeek() {
       e.preventDefault();
       const rect = grid.getBoundingClientRect();
       const ds = grid.dataset.date;
-      const startY = e.clientY - rect.top;
+      const startY = (e.clientY - rect.top) / _zoomRatio();
       const ghost = document.createElement('div');
       ghost.className = 'cal-wk-ghost';
       grid.appendChild(ghost);
       const onMove = (mv) => {
-        const y2 = Math.max(0, Math.min(grid.clientHeight, mv.clientY - rect.top));
+        const y2 = Math.max(0, Math.min(grid.clientHeight, (mv.clientY - rect.top) / _zoomRatio()));
         const y1 = Math.min(startY, y2);
         const yEnd = Math.max(startY, y2);
         const startMin = _wkPxToMin(y1);
@@ -1977,8 +1978,11 @@ function _wireAll(body) {
         // hide the calendar entirely. We leave ~24px headroom so the
         // splitter handle itself stays grabbable to drag back down.
         const vh = (window.visualViewport?.height) || window.innerHeight;
+        // startH/startY/y are all rendered/post-zoom pixels (from
+        // getBoundingClientRect()/clientY); --cal-detail-h is consumed as
+        // authored/pre-zoom (CSS grid clamp) — convert at the write.
         const newH = Math.max(40, Math.min(vh - 24, startH + (startY - y)));
-        calBody.style.setProperty('--cal-detail-h', newH + 'px');
+        calBody.style.setProperty('--cal-detail-h', (newH / _zoomRatio()) + 'px');
       };
       const onUp = () => {
         if (!dragging) return;
@@ -2360,7 +2364,7 @@ function _wireAll(body) {
       const calBody = document.getElementById('cal-body');
       if (!calBody) return;
       const vh = (window.visualViewport?.height) || window.innerHeight;
-      const target = vh - 24;
+      const target = (vh - 24) / _zoomRatio();
       // Skip if already expanded — every keystroke triggers a re-render
       // which re-focuses the input. Re-running this on each keystroke
       // would shove the layout around as the user types.
