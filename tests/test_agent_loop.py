@@ -40,6 +40,8 @@ try:
         _compute_final_metrics,
         _append_tool_results,
         _insert_before_latest_user,
+        _recent_external_mcp_server_ids,
+        _looks_like_mcp_resource_followup,
         _MCP_KEYWORDS,
     )
     _IMPORTED_AGENT_LOOP = sys.modules.get("src.agent_loop")
@@ -95,6 +97,39 @@ def test_bare_retry_after_failed_mcp_tool_is_a_continuation_regardless_of_domain
     assert intent["low_signal"] is False
     assert "mcp__b3c26839__nc_webdav_list_directory" in intent["retry_failed_tools"]
     assert "nextcloud" in intent["retrieval_query"].lower()
+
+
+def test_mcp_resource_followup_keeps_only_preceding_server_context():
+    messages = [
+        {"role": "user", "content": "List files inside Work in Nextcloud."},
+        {
+            "role": "assistant",
+            "content": "Listed Work.",
+            "metadata": {"tool_events": [{
+                "tool": "mcp__b3c26839__nc_webdav_list_directory", "exit_code": 0,
+            }]},
+        },
+        {"role": "user", "content": "Show the contents of SETUP TOUR 2026 - Desktop.md"},
+    ]
+    manager = type("Manager", (), {"_tools": {"b3c26839": [], "other": []}})()
+
+    assert _recent_external_mcp_server_ids(messages, manager) == {"b3c26839"}
+    assert _looks_like_mcp_resource_followup(messages[-1]["content"]) is True
+
+
+def test_mcp_resource_followup_does_not_cross_an_older_user_turn():
+    messages = [
+        {"role": "user", "content": "List files inside Work in Nextcloud."},
+        {"role": "assistant", "metadata": {"tool_events": [{
+            "tool": "mcp__b3c26839__nc_webdav_list_directory", "exit_code": 0,
+        }]}},
+        {"role": "user", "content": "Thanks"},
+        {"role": "assistant", "content": "You're welcome."},
+        {"role": "user", "content": "Show the contents of the file"},
+    ]
+    manager = type("Manager", (), {"_tools": {"b3c26839": []}})()
+
+    assert _recent_external_mcp_server_ids(messages, manager) == set()
 
 
 def test_bare_retry_after_a_successful_tool_call_is_not_a_continuation():

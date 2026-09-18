@@ -73,6 +73,24 @@ logger = logging.getLogger(__name__)
 _BROWSER_MCP_PREFIX = "mcp__builtin_browser__"
 
 
+def _is_mcp_document_transfer_request(text: str) -> bool:
+    """Whether a request needs an MCP source *and* a new Library document.
+
+    Explicit-server routing deliberately narrows schemas to the remote MCP
+    server. A transfer is the exception: without the local create_document
+    schema, a model can read the remote file but has no valid way to save it.
+    """
+    query = (text or "").lower()
+    has_document_target = any(token in query for token in (
+        "document", "doc", "library", "thư viện", "tài liệu",
+    ))
+    has_transfer_intent = any(token in query for token in (
+        "create", "make", "import", "save", "copy", "transfer",
+        "tạo", "lưu", "nhập", "sao chép", "chuyển",
+    ))
+    return has_document_target and has_transfer_intent
+
+
 def _expand_browser_mcp_tools(tool_names: Set[str], mcp_mgr) -> Set[str]:
     """Expand browser intent to every connected Playwright MCP tool.
 
@@ -435,6 +453,7 @@ _AGENT_RULES = """\
 - After a tool fails, retry with a concrete fix or state what is blocking you.
 - Finish only when the user's concrete request is actually done, or clearly state that you are blocked.
 - User identity facts/preferences ("my name is X", "call me X", "I live in X") use `manage_memory`, not contacts.
+- MCP file metadata: a raw `size` value is bytes. Never relabel a raw byte count as KB/MB. Either display it as `<N> bytes`, or convert with 1 KiB = 1024 bytes and 1 MiB = 1,048,576 bytes before naming the unit.
 """
 
 _API_AGENT_RULES = """\
@@ -449,6 +468,7 @@ _API_AGENT_RULES = """\
 - After a tool fails, retry with a concrete fix or state what is blocking you.
 - Finish only when the user's concrete request is actually done, or clearly state that you are blocked.
 - User identity facts/preferences ("my name is X", "call me X", "I live in X") use `manage_memory`, not contacts.
+- MCP file metadata: a raw `size` value is bytes. Never relabel a raw byte count as KB/MB. Either display it as `<N> bytes`, or convert with 1 KiB = 1024 bytes and 1 MiB = 1,048,576 bytes before naming the unit.
 """
 
 _LINK_RULES = """\
@@ -1662,6 +1682,48 @@ def _resolved_tool_event_name(event: dict[str, Any]) -> str:
         if m:
             return m.group(0)
     return tool
+
+
+def _recent_external_mcp_server_ids(messages: List[Dict], mcp_mgr) -> Set[str]:
+    """Return the server behind the latest external MCP event, if any.
+
+    This is intentionally limited to the immediately preceding tool activity.
+    It lets a user say "show its contents" after listing a Nextcloud folder,
+    without treating an MCP server used much earlier as ambient authority.
+    """
+    server_ids = set(getattr(mcp_mgr, "_tools", {}))
+    skipped_latest_user = False
+    for message in reversed(messages):
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role") or "") == "user":
+            if not skipped_latest_user:
+                skipped_latest_user = True
+                continue
+            # Do not cross another conversation turn to resurrect an old server.
+            break
+        metadata = message.get("metadata")
+        events = metadata.get("tool_events") if isinstance(metadata, dict) else None
+        if not isinstance(events, list):
+            continue
+        for event in reversed(events):
+            if not isinstance(event, dict):
+                continue
+            tool = _resolved_tool_event_name(event)
+            for server_id in server_ids:
+                if tool.startswith(f"mcp__{server_id}__"):
+                    return {server_id}
+    return set()
+
+
+def _looks_like_mcp_resource_followup(text: str) -> bool:
+    """Whether a turn is plausibly operating on a preceding MCP resource."""
+    terms = set(re.findall(r"[a-z0-9]+", (text or "").casefold()))
+    return bool(terms & {
+        "content", "contents", "read", "open", "show", "view", "file", "files",
+        "folder", "folders", "directory", "directories", "download", "it", "that",
+        "this", "first", "second", "one",
+    })
 
 
 def _minimal_recent_notes_tool_context_message(messages: List[Dict]) -> Optional[Dict]:
@@ -4064,6 +4126,7 @@ async def stream_agent_loop(
     # Per-request forced tools are stronger than retrieval. Explicit search
     # settings make web tools visible even when tool RAG misses them;
     # route-level disabled_tools decides what remains allowed.
+    forced_set: Set[str] = set()
     if not guide_only and forced_tools:
         forced_set = {t for t in forced_tools if t not in disabled_tools}
         if _relevant_tools is None:
@@ -4071,6 +4134,17 @@ async def stream_agent_loop(
             _relevant_tools = set(ALWAYS_AVAILABLE)
         _relevant_tools.update(forced_set)
 
+    # An MCP file source plus an explicit request to save/import/copy it needs
+    # both the remote reader and the local Library writer. Computed once so
+    # every narrowing pass below (explicit-server, follow-up, and per-skill)
+    # can OR it back in — each pass reassigns _relevant_tools from scratch,
+    # so a value added by an earlier pass is otherwise lost when a later pass
+    # (e.g. a second matched skill with no local toolset of its own) runs.
+    _mcp_document_transfer_tools = (
+        {"create_document"}
+        if _is_mcp_document_transfer_request(_retrieval_query or _last_user)
+        else set()
+    )
     if not guide_only and _relevant_tools is not None and mcp_mgr:
         # Retrieval may omit a dynamic MCP tool after the first round. A user
         # explicitly naming a connected server is stronger evidence than RAG,
@@ -4085,14 +4159,51 @@ async def stream_agent_loop(
                 # its selected MCP tools; unrelated coding/admin schemas waste
                 # context and can distract the model into manage_skills loops.
                 from src.tool_index import ALWAYS_AVAILABLE
-                _relevant_tools = set(ALWAYS_AVAILABLE) | forced_set | _explicit_mcp_tools
+                _relevant_tools = (
+                    set(ALWAYS_AVAILABLE)
+                    | forced_set
+                    | _explicit_mcp_tools
+                    | _mcp_document_transfer_tools
+                )
                 logger.info(
                     "[tool-rag] Explicit MCP server reference selected %d tools",
                     len(_explicit_mcp_tools),
                 )
         except Exception as _exc:
             logger.warning("[tool-rag] Explicit MCP server expansion failed: %s", _exc)
+
+        # A resource follow-up ("show the contents of that file") normally
+        # omits the server name. Preserve only the server used in the directly
+        # preceding tool turn, then rank its schemas from the new request. This
+        # prevents a prior Nextcloud list from making an unrelated MCP server
+        # available, while allowing the file reader to replace the lister.
+        _mcp_followup_tools: Set[str] = set()
+        if _looks_like_mcp_resource_followup(_last_user):
+            try:
+                _recent_mcp_servers = _recent_external_mcp_server_ids(messages, mcp_mgr)
+                if _recent_mcp_servers:
+                    _mcp_followup_tools = mcp_mgr.get_tools_for_explicit_server_reference(
+                        _last_user,
+                        _mcp_disabled_map,
+                        server_ids=_recent_mcp_servers,
+                    )
+                    if _mcp_followup_tools:
+                        from src.tool_index import ALWAYS_AVAILABLE
+                        _relevant_tools = (
+                            set(ALWAYS_AVAILABLE)
+                            | forced_set
+                            | _mcp_followup_tools
+                            | _mcp_document_transfer_tools
+                        )
+                        logger.info(
+                            "[tool-rag] MCP follow-up selected %d tools from %s",
+                            len(_mcp_followup_tools), sorted(_recent_mcp_servers),
+                        )
+            except Exception as _exc:
+                logger.warning("[tool-rag] MCP follow-up expansion failed: %s", _exc)
         _relevant_tools = _expand_browser_mcp_tools(_relevant_tools, mcp_mgr)
+    else:
+        _mcp_followup_tools = set()
 
     # The skill index injected by _build_system_prompt tells the model to
     # call `manage_skills action=view`, and Jaccard-matched skills are pasted
@@ -4125,7 +4236,16 @@ async def stream_agent_loop(
                         _retrieval_query, skills=_owner_skills,
                         threshold=0.25, max_items=3,
                     ):
-                        for _toolset in (_sk.get("requires_toolsets") or []):
+                        _sk_toolsets = _sk.get("requires_toolsets") or []
+                        # Compute this skill's own local (non-MCP) toolsets
+                        # up front. A skill may list both a local writer and
+                        # a remote server name (e.g. ["create_document",
+                        # "nextcloud"]) — the MCP branch below replaces
+                        # _relevant_tools wholesale, so without carrying
+                        # these along it silently drops a local tool the
+                        # same skill just declared it needs.
+                        _sk_local_toolsets = {t for t in _sk_toolsets if t in _known}
+                        for _toolset in _sk_toolsets:
                             if _toolset in _known:
                                 _relevant_tools.add(_toolset)
                                 continue
@@ -4144,7 +4264,8 @@ async def stream_agent_loop(
                                 if _skill_mcp_tools:
                                     # A matched remote-MCP skill is as narrow
                                     # as an explicitly named server. Retain
-                                    # only its schemas and ambient controls;
+                                    # only its schemas, ambient controls, and
+                                    # this same skill's own local toolsets;
                                     # otherwise an earlier RAG hit such as
                                     # `pipeline` can make a small model treat
                                     # an MCP tool identifier as a model name.
@@ -4153,6 +4274,8 @@ async def stream_agent_loop(
                                         set(ALWAYS_AVAILABLE)
                                         | forced_set
                                         | _skill_mcp_tools
+                                        | _sk_local_toolsets
+                                        | _mcp_document_transfer_tools
                                     )
         except Exception as _e:
             logger.debug(f"[tool-rag] skill-aware tool include skipped: {_e}")
@@ -4429,6 +4552,7 @@ async def stream_agent_loop(
         elif (
             is_ody
             and not _runtime_skill_tools
+            and not _mcp_followup_tools
             and not plan_mode
             and not approved_plan
             and not guide_only
@@ -4588,9 +4712,12 @@ async def stream_agent_loop(
             return []
         if route_state["is_api_model"]:
             if route_relevant_tools:
+                # Retrieval already selected the specific tools for this
+                # request. Do not union in every admin schema here just
+                # because the message contains a broad word like "document"
+                # or "MCP" — that exposes unrelated create_session/list_models
+                # actions to small tool-call models like Qwen3-14B.
                 schema_names = set(route_relevant_tools)
-                if _needs_admin:
-                    schema_names |= _ADMIN_TOOLS
                 base_schemas = [
                     schema for schema in FUNCTION_TOOL_SCHEMAS
                     if schema.get("function", {}).get("name") in schema_names

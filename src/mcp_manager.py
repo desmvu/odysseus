@@ -618,15 +618,24 @@ class McpManager:
         return schemas
 
     def get_tools_for_explicit_server_reference(
-        self, query: str, disabled_map: Optional[Dict[str, set]] = None, max_tools: int = 3
+        self,
+        query: str,
+        disabled_map: Optional[Dict[str, set]] = None,
+        max_tools: int = 3,
+        server_ids: Optional[Set[str]] = None,
     ) -> Set[str]:
         """Return a small relevant set from an explicitly named external server.
 
         A named server is stronger evidence than tool-RAG, but large servers can
         expose hundreds of schemas. Rank its tools by query-term overlap instead
         of injecting every schema and exceeding a model's context window.
+
+        ``server_ids`` is the same narrow path for a resource follow-up after a
+        successful MCP call. It is deliberately an allow-list rather than a
+        fallback to every connected server.
         """
         normalized_query = (query or "").casefold()
+        selected_server_ids = set(server_ids or ())
         if not normalized_query:
             return set()
         # Safety constraints often say "do not create, move, or share". They
@@ -641,10 +650,29 @@ class McpManager:
         if "directory" in query_terms:
             query_terms.add("list")
 
+        # Boilerplate from an instruction ("use ... to", "show me", etc.)
+        # occurs in nearly every MCP description and must not outscore the
+        # domain noun that identifies the operation. Retain it for workflow
+        # classification above, but exclude it from generic catalog ranking.
+        rank_terms = query_terms - {
+            "a", "an", "and", "at", "by", "can", "for", "from", "in", "it", "its",
+            "me", "my", "of", "on", "or", "please", "that", "the", "this", "to",
+            "use", "using", "with", "you", "your",
+        }
+        # MCP tool identifiers commonly use singular nouns while users use
+        # plurals (calendar events, contacts, pages, messages). Add the
+        # conservative singular form without discarding the original token;
+        # short nouns such as "news" deliberately stay untouched.
+        rank_terms |= {
+            term[:-1] for term in rank_terms
+            if len(term) > 4 and term.endswith("s") and not term.endswith("ss")
+        }
+
         ranked: List[Tuple[int, str]] = []
         explicitly_named: List[str] = []
         request_workflow_tools: List[str] = []
         soulseek_workflow_tools: List[str] = []
+        soulseek_tool_discovery_tools: List[str] = []
         nextcloud_workflow_tools: List[str] = []
         for server_id, tools in self._tools.items():
             if self.is_builtin(server_id):
@@ -654,7 +682,10 @@ class McpManager:
             aliases = {server_name}
             if server_name.endswith(" mcp"):
                 aliases.add(server_name[:-4].strip())
-            if not any(
+            if selected_server_ids:
+                if server_id not in selected_server_ids:
+                    continue
+            elif not any(
                 alias and re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", normalized_query)
                 for alias in aliases
             ):
@@ -673,13 +704,32 @@ class McpManager:
                     request_workflow_tools.extend(
                         f"mcp__{server_id}__{name}" for name in (search_names[:1] + requests_names[:1])
                     )
+            # slskd exposes its own tool-search endpoint. A request to find a
+            # *tool* is administrative discovery, not a music search; make it
+            # unambiguous instead of also offering file-search operations.
+            if (
+                {"tool", "tools"} & query_terms
+                and "search" in query_terms
+                and "slskd_search_tools" in enabled_names
+            ):
+                soulseek_tool_discovery_tools.append(
+                    f"mcp__{server_id}__slskd_search_tools"
+                )
             # slskd searches are asynchronous: its 98-tool surface otherwise
             # makes lexical ranking omit either the result reader or the
             # transfer creator. Expose the complete safe lookup sequence, and
             # the queue operation only when the user explicitly asks to act.
-            music_terms = {"song", "songs", "track", "tracks", "music", "album", "albums", "download", "queue"}
+            music_entity_terms = {
+                "song", "songs", "track", "tracks", "music", "album", "albums",
+                "artist", "artists",
+            }
+            music_action_terms = {"search", "find", "look", "locate", "download", "queue"}
             required_music_tools = {"slskd_create_search", "slskd_get_search_results"}
-            if music_terms & query_terms and required_music_tools <= enabled_names:
+            if (
+                music_entity_terms & query_terms
+                and music_action_terms & query_terms
+                and required_music_tools <= enabled_names
+            ):
                 workflow_names = ["slskd_create_search", "slskd_get_search_results"]
                 if {"download", "queue", "request"} & query_terms and "slskd_create_transfers_downloads" in enabled_names:
                     workflow_names.append("slskd_create_transfers_downloads")
@@ -692,20 +742,48 @@ class McpManager:
             # ambiguous between "folder contents" and "file contents" (e.g.
             # "show me the contents of STREAM IDEAS.md"), so a filename-shaped
             # token routes to the file reader instead of the directory lister.
+            #
+            # Disambiguate using the LATEST turn's own words, not the full
+            # merged continuation query: a follow-up like "can you see the
+            # contents of Setup Tour 2026?" concatenates with an earlier
+            # "list files inside Work" turn for retrieval context, and "list"/
+            # "inside" from that older turn would otherwise keep winning on
+            # every later turn in the same conversation, permanently hiding
+            # nc_webdav_read_file behind nc_webdav_list_directory.
             file_hint = bool(re.search(r"\.[a-z0-9]{1,5}\b", normalized_query))
             folder_words = {"folder", "directory", "root", "inside"}
+            read_words = {"content", "contents", "show", "read", "open", "see", "view"}
+            list_words = {"list"} | folder_words
+            _latest_line = (query or "").split("\n", 1)[0]
+            _latest_terms = set(re.findall(r"[a-z0-9_]+", _latest_line.casefold()))
+            nc_terms = _latest_terms if _latest_terms else query_terms
+            # The same natural verbs (especially "show" and "list") are
+            # used by every Nextcloud app. Keep the WebDAV shortcut confined
+            # to file-system requests; otherwise it starves the calendar,
+            # contacts, Collectives, Deck, News, Mail, Talk, shopping, and
+            # shares families before generic ranking can consider them.
+            nextcloud_app_terms = {
+                "calendar", "event", "events", "todo", "todos", "contact", "contacts",
+                "addressbook", "addressbooks", "collective", "collectives", "page", "pages",
+                "deck", "board", "boards", "stack", "stacks", "card", "cards", "news",
+                "feed", "feeds", "article", "articles", "mail", "email", "emails", "mailbox",
+                "mailboxes", "message", "messages", "talk", "conversation", "conversations",
+                "shopping", "share", "shares",
+            }
+            nextcloud_file_intent = not (nextcloud_app_terms & nc_terms)
             if (
-                "nc_webdav_read_file" in enabled_names
-                and {"content", "contents", "show", "read", "open"} & query_terms
-                and file_hint
+                nextcloud_file_intent
+                and "nc_webdav_read_file" in enabled_names
+                and (read_words & nc_terms)
+                and (file_hint or not (list_words & nc_terms))
             ):
                 nextcloud_workflow_tools.append(
                     f"mcp__{server_id}__nc_webdav_read_file"
                 )
             elif (
-                "nc_webdav_list_directory" in enabled_names
-                and {"list", "show"} & query_terms
-                and (folder_words & query_terms or ("contents" in query_terms and not file_hint))
+                nextcloud_file_intent
+                and "nc_webdav_list_directory" in enabled_names
+                and (list_words & nc_terms)
             ):
                 nextcloud_workflow_tools.append(
                     f"mcp__{server_id}__nc_webdav_list_directory"
@@ -723,15 +801,64 @@ class McpManager:
                 if re.search(rf"(?<!\w){re.escape(tool['name'].casefold())}(?!\w)", normalized_query):
                     explicitly_named.append(qualified)
                     continue
-                searchable = f"{tool['name']} {tool.get('description', '')}".casefold()
-                score = sum(term in searchable for term in query_terms)
-                if score:
+                # Match whole tokens instead of arbitrary substrings: a query
+                # term such as "in" must not score every description containing
+                # "within". Name matches carry more weight than prose because
+                # MCP descriptions commonly repeat generic verbs such as list,
+                # get, and create across a large server's entire catalog.
+                name_terms = set(re.findall(r"[a-z0-9]+", str(tool["name"]).casefold()))
+                description_terms = set(re.findall(
+                    r"[a-z0-9]+", str(tool.get("description", "")).casefold()
+                ))
+                score = 3 * len(name_terms & rank_terms) + len(description_terms & rank_terms)
+                # "Show my contacts/cards/messages" is a read request even
+                # when the user does not literally say "list". Prefer the
+                # catalog's read operations over same-domain create/update/
+                # delete operations when the domain noun otherwise ties.
+                mutation_request_terms = {
+                    "add", "archive", "assign", "clear", "complete", "create", "delete", "download",
+                    "move", "remove", "restore", "send", "unarchive", "update", "write",
+                }
+                # `check` can mean inspect in user language, but check/uncheck
+                # are mutations in the slskd and shopping-list tool catalogs.
+                mutating_tool_operations = mutation_request_terms | {"check", "uncheck"}
+                # A stated write action always wins over a read preference.
+                # Otherwise, a show/list request should not even surface an
+                # unrelated mutation beside the appropriate reader.
+                if mutation_request_terms & query_terms:
+                    preferred_read_operations = set()
+                elif {"search", "find"} & rank_terms:
+                    preferred_read_operations = {"search", "find"}
+                elif {"show", "view", "read", "open", "check", "get"} & rank_terms:
+                    preferred_read_operations = {
+                        "list", "get", "read", "browse", "overview", "status"
+                    }
+                elif "list" in rank_terms:
+                    preferred_read_operations = {"list"}
+                else:
+                    preferred_read_operations = set()
+                # Some tool names contain `list` as a domain noun (for
+                # example `nc_shopping_list_get_items`). If a more specific
+                # operation is present, it is the operation, not that noun.
+                non_list_operations = name_terms & (
+                    mutating_tool_operations | {
+                        "browse", "find", "get", "read", "search", "status",
+                    }
+                )
+                operation_terms = non_list_operations or (name_terms & {"list"})
+                if preferred_read_operations & operation_terms:
+                    score += 6
+                elif preferred_read_operations and mutating_tool_operations & operation_terms:
+                    score -= 6
+                if score > 0:
                     ranked.append((score, qualified))
 
         if explicitly_named:
             return set(sorted(explicitly_named)[:max_tools])
         if request_workflow_tools:
             return set(sorted(request_workflow_tools)[:max_tools])
+        if soulseek_tool_discovery_tools:
+            return set(sorted(soulseek_tool_discovery_tools)[:max_tools])
         if soulseek_workflow_tools:
             return set(sorted(soulseek_workflow_tools)[:max_tools])
         if nextcloud_workflow_tools:
@@ -839,6 +966,12 @@ class McpManager:
             identity = self._connections.get(sid, {}).get("identity", "")
             label = f"{server_name} ({identity})" if identity else server_name
             lines.append(f"\n**{label}:**")
+            if sid == "nextcloud":
+                lines.append(
+                    "  - Guidance: Nextcloud file metadata `size` values are bytes. "
+                    "Present them as bytes, KiB (÷1024), MiB (÷1024²), or GiB (÷1024³); "
+                    "never relabel a raw byte count as MB."
+                )
             for t in server_tools:
                 # Truncate long descriptions
                 desc = t['description'][:120] + '...' if len(t['description']) > 120 else t['description']

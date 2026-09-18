@@ -48,6 +48,23 @@ def test_explicit_mcp_server_reference_keeps_its_tools_visible():
     assert selected == {"mcp__srv1__fetch_doc"}
 
 
+def test_mcp_followup_server_context_selects_reader_without_repeating_server_name():
+    mgr = McpManager()
+    mgr._tools = {"nextcloud": [
+        {"name": "nc_webdav_list_directory", "description": "List a directory's files."},
+        {"name": "nc_webdav_read_file", "description": "Read the content of a file by path."},
+        {"name": "deck_get_cards", "description": "Get Deck cards."},
+    ]}
+    mgr._connections = {"nextcloud": {"name": "Nextcloud", "identity": ""}}
+
+    selected = mgr.get_tools_for_explicit_server_reference(
+        "Show the contents of SETUP TOUR 2026 - Desktop.md",
+        server_ids={"nextcloud"},
+    )
+
+    assert selected == {"mcp__nextcloud__nc_webdav_read_file"}
+
+
 def test_explicit_mcp_server_reference_prioritizes_named_tool_identifiers():
     mgr = McpManager()
     mgr._tools = {"seerr": [
@@ -114,6 +131,28 @@ def test_explicit_nextcloud_file_read_prefers_read_file_over_list_directory():
     ) == {"mcp__nextcloud__nc_webdav_read_file"}
 
 
+def test_explicit_nextcloud_read_file_followup_after_stale_list_intent():
+    mgr = McpManager()
+    mgr._tools = {"nextcloud": [
+        {"name": "nc_webdav_list_directory", "description": "List directory contents."},
+        {"name": "nc_webdav_read_file", "description": "Read the content of a file from NextCloud."},
+        {"name": "deck_attach_file", "description": "Attach a file to a Deck card."},
+    ]}
+    mgr._connections = {"nextcloud": {"name": "Nextcloud", "identity": ""}}
+
+    # Continuation retrieval queries put the newest turn first; an older
+    # "list ... inside" turn must not keep winning over a later file-read
+    # follow-up in the same conversation.
+    query = (
+        "can you see the contents of Setup Tour 2026?\n"
+        "Use Nextcloud to list files inside Work."
+    )
+
+    assert mgr.get_tools_for_explicit_server_reference(query) == {
+        "mcp__nextcloud__nc_webdav_read_file"
+    }
+
+
 def test_explicit_soulseek_lookup_keeps_search_and_results_together():
     mgr = McpManager()
     mgr._tools = {"soulseek": [
@@ -145,6 +184,71 @@ def test_explicit_soulseek_download_adds_only_the_queue_tool():
         "mcp__soulseek__slskd_get_search_results",
         "mcp__soulseek__slskd_create_transfers_downloads",
     }
+
+
+def test_nextcloud_non_webdav_domains_are_not_hijacked_by_file_shortcuts():
+    mgr = McpManager()
+    mgr._tools = {"nextcloud": [
+        {"name": "nc_webdav_list_directory", "description": "List directory contents."},
+        {"name": "nc_webdav_read_file", "description": "Read file contents."},
+        {"name": "nc_calendar_list_events", "description": "List events in a calendar."},
+        {"name": "nc_contacts_list_contacts", "description": "List contacts in an addressbook."},
+        {"name": "collectives_get_pages", "description": "List pages in a Collective."},
+        {"name": "deck_get_cards", "description": "Get cards in a Deck stack."},
+        {"name": "nc_news_get_unread_items", "description": "Get unread news articles."},
+        {"name": "nc_mail_list_messages", "description": "List email messages in a mailbox."},
+        {"name": "talk_get_messages", "description": "Read Talk conversation messages."},
+        {"name": "nc_shopping_list_get_items", "description": "Get shopping list items."},
+        {"name": "nc_share_list", "description": "List Nextcloud shares."},
+    ]}
+    mgr._connections = {"nextcloud": {"name": "Nextcloud", "identity": ""}}
+
+    expected = {
+        "List my calendar events on Nextcloud.": "nc_calendar_list_events",
+        "Show my contacts on Nextcloud.": "nc_contacts_list_contacts",
+        "Show Collective pages on Nextcloud.": "collectives_get_pages",
+        "Show Deck cards on Nextcloud.": "deck_get_cards",
+        "Show unread news articles on Nextcloud.": "nc_news_get_unread_items",
+        "Show my email messages on Nextcloud.": "nc_mail_list_messages",
+        "Show Talk conversation messages on Nextcloud.": "talk_get_messages",
+        "Show shopping list items on Nextcloud.": "nc_shopping_list_get_items",
+        "Show my Nextcloud shares.": "nc_share_list",
+    }
+
+    for query, tool_name in expected.items():
+        assert f"mcp__nextcloud__{tool_name}" in mgr.get_tools_for_explicit_server_reference(query)
+
+
+def test_soulseek_administrative_download_requests_do_not_start_a_search():
+    mgr = McpManager()
+    mgr._tools = {"soulseek": [
+        {"name": "slskd_search_tools", "description": "Search for tools by keyword."},
+        {"name": "slskd_create_search", "description": "Create a music search."},
+        {"name": "slskd_get_search_results", "description": "Get music search results."},
+        {"name": "slskd_list_transfers_downloads", "description": "List current downloads."},
+    ]}
+    mgr._connections = {"soulseek": {"name": "Soulseek", "identity": ""}}
+
+    selected = mgr.get_tools_for_explicit_server_reference(
+        "List my Soulseek downloads."
+    )
+
+    assert "mcp__soulseek__slskd_list_transfers_downloads" in selected
+    assert "mcp__soulseek__slskd_create_search" not in selected
+
+
+def test_soulseek_tool_discovery_is_not_mistaken_for_music_search():
+    mgr = McpManager()
+    mgr._tools = {"soulseek": [
+        {"name": "slskd_search_tools", "description": "Search for tools by keyword."},
+        {"name": "slskd_create_search", "description": "Create a music search."},
+        {"name": "slskd_get_search_results", "description": "Get music search results."},
+    ]}
+    mgr._connections = {"soulseek": {"name": "Soulseek", "identity": ""}}
+
+    assert mgr.get_tools_for_explicit_server_reference(
+        "Use Soulseek to search its tools for downloads."
+    ) == {"mcp__soulseek__slskd_search_tools"}
 
 
 def test_explicit_mcp_server_reference_returns_a_bounded_relevant_set():
@@ -180,6 +284,21 @@ def test_prompt_descriptions_surface_param_names_and_required():
     assert "mcp__srv1__fetch_doc" in text
     assert "path" in text and "limit" in text   # inputs are surfaced to the model
     assert "required" in text                   # required-ness is surfaced
+
+
+def test_nextcloud_prompt_descriptions_explain_file_size_units():
+    mgr = McpManager()
+    mgr._tools = {"nextcloud": [{
+        "name": "nc_webdav_list_directory",
+        "description": "List directory contents.",
+    }]}
+    mgr._connections = {"nextcloud": {"name": "Nextcloud", "identity": ""}}
+
+    text = mgr.get_tool_descriptions_for_prompt()
+
+    assert "metadata `size` values are bytes" in text
+    assert "KiB (÷1024)" in text
+    assert "never relabel a raw byte count as MB" in text
 
 
 def test_prompt_descriptions_only_include_selected_mcp_tools():
