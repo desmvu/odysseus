@@ -1,1 +1,16 @@
 workflow_mode: solo-git
+active_flow: null
+bug_cycle:
+  current_step: null
+  completed_steps: [1, 2, 3, 4, 5]
+  bug_id: BUG-2026-09-18T231000
+  status: resolved
+  decision: >-
+    Generalized the create_document carve-out into _sk_local_toolsets so any
+    skill mixing a local Odysseus tool with an MCP server name in
+    requires_toolsets keeps its local tool through skill-triggered narrowing,
+    not just the one document-transfer skill. Also removed dead admin-schema
+    guard code and confirmed Qwen3-14B tool-capability detection is correct.
+  verification: >-
+    90 targeted tests pass. User confirmed live success of the document
+    import and a separate skill call. Docker rebuilt and healthy.

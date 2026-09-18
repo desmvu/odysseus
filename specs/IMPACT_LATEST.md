@@ -1,26 +1,22 @@
 ## Target
-Remote MCP server authentication headers across `core/database.py`, `routes/mcp/mcp_routes.py`, `src/mcp_manager.py`, and `static/js/settings.js`.
+`src/mcp_manager.py:McpManager.get_tools_for_explicit_server_reference()` and the prompt-selection flow in `src/agent_loop.py`; cosmetic output guidance for MCP file-size metadata.
 
-## Dependents (6)
-- `src/mcp_manager.py`: all MCP connection paths, enabled-server startup, reconnection, and tool refresh.
-- `routes/mcp/mcp_routes.py`: add, reconnect, toggle, OAuth completion, and tool-refresh endpoints.
-- `src/agent_tools/admin_tools.py`: agent-managed MCP server reconnects.
-- `src/builtin_mcp.py`: built-in stdio MCP connections share the `connect_server` interface.
-- `static/js/settings.js`: user settings MCP creation UI.
-- `static/js/admin.js`: administrator MCP creation UI.
+## Dependents (3)
+- `src/agent_loop.py:4079`: explicit user references to an external MCP server narrow the available schemas to selected remote tools.
+- `src/agent_loop.py:4140`: a matched skill declaring a remote MCP server as `requires_toolsets` resolves that server through the same selector.
+- `tests/test_mcp_tool_params_in_prompt.py`: behavioral regression coverage for named-server selection, Seerr request workflows, Nextcloud WebDAV workflows, Soulseek workflows, disabled tools, and the schema cap.
 
 ## Affected Stories
-- No `specs/release-plan.yaml` or epic capsules exist in this repository.
-- Existing documentation: `specs/shell-mcp.md` and `specs/settings-admin.md` cover this area.
+- No active release-plan story owns this code (`specs/release-plan.yaml` is absent/empty); existing MCP reliability work is tracked in `specs/bugs/BUG-2026-09-18T032742-seerr-missing-request-tool.md`, `specs/bugs/BUG-2026-09-18T094500-nextcloud-bogus-task-creation.md`, `specs/bugs/BUG-2026-09-18T095530-mcp-retry-loop.md`, and `specs/bugs/BUG-2026-09-18T105700-nextcloud-stale-list-intent-blocks-read.md`.
 
 ## Test Coverage
-- `tests/test_mcp_manager.py`: transport dispatch and connection-error formatting.
-- `tests/test_mcp_add_server_args_validation.py`: route validation for MCP configuration.
-- `tests/test_mcp_reconnect_args.py`: persisted server configuration on reconnect.
-- Gap: no coverage for authenticated SSE/Streamable HTTP custom headers or encrypted MCP configuration storage.
+- `tests/test_mcp_tool_params_in_prompt.py`: covers the selector’s existing explicit-name, workflow, disabled-tool, and bound-size behavior.
+- `tests/test_agent_loop.py`: covers retry continuation/tool retention; it does not comprehensively exercise dynamic-MCP selection paths.
+- Gap: no contract/inventory test verifies the connected Nextcloud 162-tool catalog can be selected by ordinary operation-family requests without being hidden by a special-case workflow shortcut.
+- Gap: no deterministic test guards the user-visible representation of raw MCP file-size values.
 
 ## Risk: High
-This changes a shared connection interface used by every configured and built-in MCP server, persists secrets, and changes both MCP transports.
+This shared selector chooses the only callable schemas shown to the model for every dynamically connected MCP server; incorrect narrowing silently causes false capability denial or exposes irrelevant mutation tools to smaller models.
 
 ## Recommended action
-Add encrypted header persistence with a backward-compatible default, thread headers through every persisted reconnection path, and add focused manager and route regression tests before deployment.
+Add a catalog-driven, deterministic selection policy with narrow tests for each operation family found on the live Nextcloud, Soulseek, and Seerr schemas. Preserve explicit tool-name selection, disabled-tool handling, and the three-tool cap semantics. Treat raw byte values as already-correct tool data and add presentation guidance rather than mutating tool results.

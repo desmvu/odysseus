@@ -1,0 +1,13 @@
+{
+  "bug_id": "BUG-2026-09-18T225258",
+  "defect_class": "implicit FastEmbed GPU device selection in the long-lived web process",
+  "grep_pattern": "TextEmbedding\\(",
+  "sweep_scope": "src/embeddings.py routes/embedding_routes.py",
+  "match_count": 2,
+  "patched_in_pr": [
+    "src/embeddings.py",
+    "routes/embedding_routes.py"
+  ],
+  "tracked_issues": [],
+  "verification_note": "scripts/verify-generalize-sweep.sh is absent in this repository; manual grep recorded instead."
+}

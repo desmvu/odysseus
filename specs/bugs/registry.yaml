@@ -1,4 +1,113 @@
 bugs:
+  - bug_id: BUG-2026-09-18T174200
+    date: "2026-09-18"
+    severity: medium
+    priority: high
+    scope: cookbook-settings
+    summary: >-
+      The HF token input's save-on-change handler routed through the generic
+      debounced state sync, which unconditionally strips hfToken before every
+      POST (correct for that channel, wrong for the deliberate save action) —
+      the token was never actually sent to the backend, only held in memory.
+    file: specs/bugs/BUG-2026-09-18T174200-cookbook-hf-token-never-persisted.md
+    status: resolved
+    files_changed:
+      - static/js/cookbookRunning.js
+      - static/js/cookbook.js
+    approach: >-
+      Added _syncHfTokenToServer() which builds the same full state payload
+      but does not strip hfToken, sent immediately from the token input's
+      change handler instead of going through the stripped debounced sync.
+
+  - bug_id: BUG-2026-09-18T174201
+    date: "2026-09-18"
+    severity: high
+    priority: high
+    scope: document-library
+    summary: >-
+      Two independent destructive bugs were found: opening an email/Nextcloud
+      attachment bulk-soft-deleted every document (removed), and switching to
+      a new document could save stale empty editor DOM into the previous tab,
+      then auto-DELETE that real previous document. The latter exactly matched
+      the recurrence: documents visible at boot, then only the newly created
+      document remains. Tab switching no longer deletes documents.
+    file: specs/bugs/BUG-2026-09-18T174201-library-documents-look-lost-on-restart.md
+    status: resolved_pending_live_confirmation
+    files_changed:
+      - routes/email_routes.py
+      - static/js/document.js
+      - static/js/documentLibrary.js
+      - tests/test_document_tab_switch_never_deletes_js.py
+    approach: >-
+      Remove the email attachment bulk update and all destructive behavior
+      from switchToDoc; retain DELETE only in explicit close/discard flow,
+      with a static source regression test proving the boundary.
+
+  - bug_id: BUG-2026-09-18T174202
+    date: "2026-09-18"
+    severity: low
+    priority: medium
+    scope: cookbook-dependencies
+    summary: >-
+      First fix (SSH-probe module fallback) fixed diffusers but not
+      sam_mask, because sam_mask has target:"local" and never reaches that
+      code path at all. Real bug: the local-target check tried
+      importlib.import_module("sam_mask") — not a real module, a synthetic
+      bundle name for torch+transformers — so it always failed regardless
+      of whether torch/transformers were actually installed.
+    file: specs/bugs/BUG-2026-09-18T174202-cookbook-deps-sam-mask-diffusers-false-red.md
+    status: resolved
+    files_changed:
+      - routes/shell_routes.py
+    approach: >-
+      Added an explicit sam_mask branch in the local-target package loop
+      checking torch+transformers importability/version directly instead of
+      import_module("sam_mask"); kept the SSH-probe fallback fix too.
+  - bug_id: BUG-2026-09-18T231000
+    date: "2026-09-18"
+    severity: high
+    priority: high
+    scope: mcp-document-routing
+    summary: >-
+      Explicit Nextcloud MCP routing omitted the local create_document schema
+      and an invalid learned skill named nonexistent importer tools, causing
+      chat pastes and model/session loops instead of Library document creation.
+    file: specs/bugs/BUG-2026-09-18T231000-nextcloud-library-transfer.md
+    status: resolved
+    files_changed:
+      - src/agent_loop.py
+      - data/skills/general/import-nextcloud-document-into-odysseus/SKILL.md
+      - data/skills/general/import-nextcloud-document-to-odysseus-and-critique/SKILL.md
+      - tests/test_mcp_document_transfer_routing.py
+    approach: >-
+      Preserve create_document through every MCP narrowing path, prevent broad
+      admin schema injection, generalize the skill-narrowing carve-out to
+      _sk_local_toolsets, then compute _mcp_document_transfer_tools once
+      unconditionally and union it into all 3 narrowing reassignment sites
+      (explicit-server, follow-up, skill-triggered) so a second matched skill
+      with no local toolset of its own can no longer silently drop it.
+    risk_level: low
+    commit_message: "fix(mcp): transfer Nextcloud files into Library documents"
+  - bug_id: BUG-2026-09-18T225258
+    date: "2026-09-18"
+    severity: medium
+    priority: high
+    scope: cookbook-gpu-runtime
+    summary: >-
+      Odysseus Uvicorn owns 1854 MiB of actual CUDA VRAM with no visible
+      standalone model server. Investigation must identify and prevent the
+      implicit or cached GPU initializer rather than merely hiding it in
+      Cookbook's preflight warning.
+    file: specs/bugs/BUG-2026-09-18T225258-odysseus-idle-cuda-vram.md
+    status: verified_fix_pending_suite
+    files_changed:
+      - src/embeddings.py
+      - routes/embedding_routes.py
+      - tests/test_embeddings.py
+      - tests/test_embedding_cache_confinement.py
+    approach: Explicitly force CPU FastEmbed sessions in the web process.
+    risk_level: low
+    commit_message: "fix(embeddings): keep local FastEmbed off the serving GPU"
   - bug_id: BUG-2026-09-18T095530
     date: "2026-09-18"
     severity: high
@@ -27,6 +136,21 @@ bugs:
       known builtin and MCP-qualified tool names (difflib) and appending
       a "did you mean" suggestion when a close match exists.
     file: specs/bugs/BUG-2026-09-18T101500-hallucinated-tool-no-suggestion.md
+    status: resolved
+  - bug_id: BUG-2026-09-18T105700
+    date: "2026-09-18"
+    severity: medium
+    priority: high
+    scope: agent-tool-selection
+    summary: >-
+      A regression in the earlier Nextcloud tool-selection fix (see
+      BUG-2026-09-18T094500) scored list-vs-read intent against the entire
+      merged multi-turn continuation query instead of the latest turn, so an
+      earlier "list files inside Work" turn permanently blocked
+      nc_webdav_read_file on every later turn, causing Qwen to falsely claim
+      no file-content tool was available. Fixed by scoping the disambiguation
+      to the latest turn's own words.
+    file: specs/bugs/BUG-2026-09-18T105700-nextcloud-stale-list-intent-blocks-read.md
     status: resolved
   - bug_id: BUG-2026-09-18T094500
     date: "2026-09-18"
