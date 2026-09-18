@@ -1134,16 +1134,32 @@ def inpaint_image(req: InpaintRequest):
                 )
             generated_crop = result.images[0].resize((cw, ch))
         except TypeError:
-            # No img2img support at all — txt2img on crop size
-            logger.info("No img2img support — txt2img on crop region")
-            result = _pipe(
-                prompt=req.prompt,
-                width=cw,
-                height=ch,
-                num_inference_steps=steps,
-                guidance_scale=3.5,
-            )
-            generated_crop = result.images[0].resize((cw, ch))
+            try:
+                # Unified edit-capable models (Flux.2 [klein], Qwen-Image-Edit)
+                # take an `image` + prompt and perform a full guided edit —
+                # they don't accept the SD-style noise `strength` kwarg that
+                # just failed above. Retry without it before giving up on the
+                # real image and falling back to blind txt2img.
+                pipe_obj = _i2i_pipe or _pipe
+                logger.info(f"Retrying as native image edit (no strength) on crop ({cw}x{ch})")
+                result = pipe_obj(
+                    prompt=req.prompt,
+                    image=crop_img,
+                    num_inference_steps=steps,
+                    guidance_scale=_guidance_scale(),
+                )
+                generated_crop = result.images[0].resize((cw, ch))
+            except TypeError:
+                # No img2img/edit support at all — txt2img on crop size
+                logger.info("No img2img/edit support — txt2img on crop region")
+                result = _pipe(
+                    prompt=req.prompt,
+                    width=cw,
+                    height=ch,
+                    num_inference_steps=steps,
+                    guidance_scale=3.5,
+                )
+                generated_crop = result.images[0].resize((cw, ch))
 
         # Apply feathering to the cropped mask for soft blending edges
         if feather > 0:
@@ -1442,10 +1458,21 @@ def _legacy_whole_image_harmonize(req, source_full):
                 num_inference_steps=steps, strength=strength, guidance_scale=7.0,
             )
     except TypeError:
-        result = _pipe(
-            prompt=req.prompt, width=width, height=height,
-            num_inference_steps=steps, guidance_scale=7.0,
-        )
+        try:
+            # Unified edit-capable models (Flux.2 [klein], Qwen-Image-Edit)
+            # perform a full guided edit from image + prompt and don't accept
+            # the SD-style noise `strength` kwarg that just failed above.
+            # Retry without it so the real image is still used.
+            pipe_obj = i2i_pipe or _pipe
+            result = pipe_obj(
+                prompt=req.prompt, image=init_image,
+                num_inference_steps=steps, guidance_scale=_guidance_scale(),
+            )
+        except TypeError:
+            result = _pipe(
+                prompt=req.prompt, width=width, height=height,
+                num_inference_steps=steps, guidance_scale=7.0,
+            )
 
     img = result.images[0]
     if (orig_w, orig_h) != (width, height):

@@ -1667,8 +1667,14 @@ function _rerenderCachedModels() {
       panelHtml += `<div class="hwfit-serve-row hwfit-backend-diffusers hwfit-backend-mlx_image hwfit-diff-settings-row">`;
       panelHtml += `<label>Dtype${_h('Precision. bfloat16 recommended for Flux, float16 for SD')} <select class="hwfit-sf" data-field="diff_dtype">${diffDtypeOpts}</select></label>`;
       panelHtml += `<label>Device Map${_h('How to place model on GPUs. balanced = split evenly')} <select class="hwfit-sf" data-field="diff_device_map">${deviceMapOpts}</select></label>`;
-      panelHtml += `<label>Steps${_h('Default inference steps. More = better quality, slower. Override with the model card recommendation when needed.')} <input type="text" class="hwfit-sf" data-field="diff_steps" value="${esc(sv('diff_steps', '20'))}" placeholder="20" /></label>`;
-      panelHtml += `<label>Guidance${_h('Classifier-free guidance scale. Override with the model card recommended value when available.')} <input type="text" class="hwfit-sf" data-field="diff_guidance_scale" value="${esc(sv('diff_guidance_scale', '3.5'))}" placeholder="3.5" /></label>`;
+      // Distilled unified models (FLUX.2 [klein], FLUX schnell) are tuned for
+      // very few steps at guidance_scale ~1.0 — the classic SDXL defaults
+      // (20 steps / 3.5 guidance) waste time and can degrade output quality.
+      const _isDistilledFlux = /flux[._-]?2?[._-]?klein|flux[._-]?schnell/i.test(repo);
+      const _diffStepsDefault = _isDistilledFlux ? '4' : '20';
+      const _diffGuidanceDefault = _isDistilledFlux ? '1.0' : '3.5';
+      panelHtml += `<label>Steps${_h('Default inference steps. More = better quality, slower. Override with the model card recommendation when needed.' + (_isDistilledFlux ? ' Defaulted to 4 for this distilled FLUX.2 [klein]-family model per its model card.' : ''))} <input type="text" class="hwfit-sf" data-field="diff_steps" value="${esc(sv('diff_steps', _diffStepsDefault))}" placeholder="${_diffStepsDefault}" /></label>`;
+      panelHtml += `<label>Guidance${_h('Classifier-free guidance scale. Override with the model card recommended value when available.' + (_isDistilledFlux ? ' Defaulted to 1.0 — this distilled model bakes guidance into training.' : ''))} <input type="text" class="hwfit-sf" data-field="diff_guidance_scale" value="${esc(sv('diff_guidance_scale', _diffGuidanceDefault))}" placeholder="${_diffGuidanceDefault}" /></label>`;
       panelHtml += `<label>Width${_h('Default output width')} <input type="text" class="hwfit-sf" data-field="diff_width" value="${esc(sv('diff_width', ''))}" placeholder="1024" /></label>`;
       panelHtml += `<label>Height${_h('Default output height')} <input type="text" class="hwfit-sf" data-field="diff_height" value="${esc(sv('diff_height', ''))}" placeholder="1024" /></label>`;
       panelHtml += `</div>`;
