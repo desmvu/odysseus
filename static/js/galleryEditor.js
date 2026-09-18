@@ -1525,10 +1525,15 @@ function _updateBrushCursor(e) {
     basePx = state.brushSize;
   }
   const diameter = basePx * state.zoom;
+  // cursorEl is `position: fixed`, so its style.left/top need the same
+  // pre-zoom conversion as the floating panels (see _zoomRatio note
+  // above) — clientX/clientY are post-zoom but diameter already matches
+  // pre-zoom layout units via state.zoom.
+  const _zr = _zoomRatio();
   state.cursorEl.style.width = diameter + 'px';
   state.cursorEl.style.height = diameter + 'px';
-  state.cursorEl.style.left = (clientX - diameter / 2) + 'px';
-  state.cursorEl.style.top = (clientY - diameter / 2) + 'px';
+  state.cursorEl.style.left = (clientX / _zr - diameter / 2) + 'px';
+  state.cursorEl.style.top = (clientY / _zr - diameter / 2) + 'px';
   state.cursorEl.style.display = '';
   if (state.tool === 'inpaint') {
     // Visual cue for paint vs erase mode. Ctrl+Alt held mid-hover also
@@ -2833,17 +2838,19 @@ function _positionInpaintPanel(anchorBtn) {
     const r = anchorBtn?.getBoundingClientRect?.();
     if (!r) return;
     requestAnimationFrame(() => {
+      const _zr = _zoomRatio();
       const panelW = panel.offsetWidth || 320;
       const panelH = panel.offsetHeight || 520;
       const left = Math.min(window.innerWidth - panelW - 12, Math.max(12, r.right + 10));
       const top = Math.min(window.innerHeight - panelH - 12, Math.max(12, r.top));
-      panel.style.left = `${left}px`;
-      panel.style.top = `${top}px`;
+      panel.style.left = `${left / _zr}px`;
+      panel.style.top = `${top / _zr}px`;
     });
     return;
   }
   requestAnimationFrame(() => {
     const refRect = ref.getBoundingClientRect();
+    const _zr = _zoomRatio();
     const panelW = panel.offsetWidth || 320;
     const panelH = panel.offsetHeight || 520;
     // Sit immediately to the left of the right panel, top-aligned with
@@ -2854,8 +2861,8 @@ function _positionInpaintPanel(anchorBtn) {
     // Clamp into the viewport so the popover never leaves the screen.
     left = Math.max(12, Math.min(window.innerWidth - panelW - 12, left));
     top = Math.max(12, Math.min(window.innerHeight - panelH - 12, top));
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
+    panel.style.left = `${left / _zr}px`;
+    panel.style.top = `${top / _zr}px`;
   });
 }
 
@@ -2884,13 +2891,14 @@ function _wireInpaintPopoverWindow() {
     head.setPointerCapture(e.pointerId);
     head.style.cursor = 'grabbing';
     const onMove = (ev) => {
+      const _zr = _zoomRatio();
       const w = panel.offsetWidth || r0.width;
       const h = panel.offsetHeight || r0.height;
       const nx = Math.max(8, Math.min(window.innerWidth - w - 8, r0.left + ev.clientX - startX));
       const ny = Math.max(8, Math.min(window.innerHeight - h - 8, r0.top + ev.clientY - startY));
       panel.dataset.userMoved = '1';
-      panel.style.left = `${nx}px`;
-      panel.style.top = `${ny}px`;
+      panel.style.left = `${nx / _zr}px`;
+      panel.style.top = `${ny / _zr}px`;
     };
     const onUp = () => {
       try { head.releasePointerCapture(e.pointerId); } catch {}
@@ -4048,8 +4056,9 @@ function _mountEditorLoading(label, dims) {
     placeholder = document.createElement('div');
     placeholder.className = 'ge-canvas-placeholder';
     const areaRect = area.getBoundingClientRect();
-    const maxW = Math.max(0, areaRect.width - 32);
-    const maxH = Math.max(0, areaRect.height - 32);
+    const _zr = _zoomRatio();
+    const maxW = Math.max(0, areaRect.width - 32) / _zr;
+    const maxH = Math.max(0, areaRect.height - 32) / _zr;
     const ratio = dims.w / dims.h;
     let w = maxW;
     let h = w / ratio;

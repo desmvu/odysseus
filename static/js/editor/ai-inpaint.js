@@ -101,9 +101,13 @@ export function wireInpaintButtons({
         const scaleY = mainRect.height / state.mainCanvas.height;
         const vpX = mainRect.left + cx * scaleX;
         const vpY = mainRect.top  + cy * scaleY;
+        // `.style.*` writes stay pre-zoom while getBoundingClientRect()
+        // reports rendered/post-zoom pixels under the "Larger" text-size
+        // setting (CSS `zoom`) — divide before writing.
+        const _zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
         canvasWp = spinnerModule.create('', 'clean', 'whirlpool');
         canvasWpEl = canvasWp.createElement();
-        canvasWpEl.style.cssText = `position:fixed;left:${vpX}px;top:${vpY}px;transform:translate(-50%,-50%);z-index:12;pointer-events:none;`;
+        canvasWpEl.style.cssText = `position:fixed;left:${vpX / _zr}px;top:${vpY / _zr}px;transform:translate(-50%,-50%);z-index:12;pointer-events:none;`;
         document.body.appendChild(canvasWpEl);
         canvasWp.start();
       }

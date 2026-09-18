@@ -47,6 +47,15 @@ import {
 } from '../layer-helpers.js';
 import { drawHistogram } from './histogram.js';
 
+// The "Larger" text-size setting applies CSS `zoom`, which splits pixel
+// measurement into two spaces — getBoundingClientRect()/clientX/clientY
+// report rendered/post-zoom pixels while `.style.*` writes stay
+// authored/pre-zoom. Divide a rendered value by this ratio before writing.
+function _zoomRatio() {
+  const w = document.documentElement.offsetWidth;
+  return w ? window.innerWidth / w : 1;
+}
+
 export function createAdjPopupSystem({ composite, saveState, renderLayerPanel }) {
   function suppressLayerGhostTap() {
     window.__geSuppressLayerTapUntil = Date.now() + 650;
@@ -176,7 +185,7 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
       menu.style.right = '';
       menu.style.bottom = '';
     } else if (r) {
-      const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+      const zr = _zoomRatio();
       const menuW = 220;
       const menuH = (menu.offsetHeight || 200) * zr;
       const rightX = r.right + 4;
@@ -218,7 +227,7 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
     if (!pop) return;
     const type = pop._type;
     const r = pop.getBoundingClientRect();
-    const _zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+    const _zr = _zoomRatio();
     pop._stashLeft = r.left / _zr;
     pop._stashTop  = r.top / _zr;
     pop.style.display = 'none';
@@ -315,6 +324,7 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
     state.adjPopupEl = pop;
 
     const r = anchorEl?.getBoundingClientRect?.();
+    const _zr0 = _zoomRatio();
     const pw = type === 'color-balance' ? 340 : 320;
     // Prefer right of anchor; fall back to left if no room.
     let left;
@@ -327,8 +337,8 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
       left = (window.innerWidth - pw) / 2;
     }
     const top = r ? Math.max(8, r.top - 20) : 60;
-    pop.style.left = left + 'px';
-    pop.style.top  = top  + 'px';
+    pop.style.left = (left / _zr0) + 'px';
+    pop.style.top  = (top  / _zr0) + 'px';
 
     const body = pop.querySelector('[data-adj-body]');
     buildAdjBody(layer, type, body, pop);
@@ -341,16 +351,17 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
     if (head) {
       const isMobile = window.matchMedia('(max-width: 820px)').matches;
       const setPos = (x, y) => {
+        const zr = _zoomRatio();
         if (isMobile) {
-          pop.style.setProperty('left', x + 'px', 'important');
-          pop.style.setProperty('top', y + 'px', 'important');
+          pop.style.setProperty('left', (x / zr) + 'px', 'important');
+          pop.style.setProperty('top', (y / zr) + 'px', 'important');
           pop.style.setProperty('right', 'auto', 'important');
           pop.style.setProperty('bottom', 'auto', 'important');
           pop.style.setProperty('width', 'auto', 'important');
           pop.style.setProperty('max-width', 'calc(100vw - 16px)', 'important');
         } else {
-          pop.style.left = x + 'px';
-          pop.style.top = y + 'px';
+          pop.style.left = (x / zr) + 'px';
+          pop.style.top = (y / zr) + 'px';
         }
       };
       head.style.touchAction = 'none';
@@ -606,9 +617,10 @@ export function createAdjPopupSystem({ composite, saveState, renderLayerPanel })
       // from gamma's log scale (1 = midpoint, 0.1 = far right, 10 = far left).
       const gammaT = 1 - (Math.log(p.gamma || 1) / Math.log(10) * 0.5 + 0.5);
       const xG = xB + (xW - xB) * gammaT;
+      const zr = _zoomRatio();
       const set = (sel, x) => {
         const el = bodyEl.querySelector(sel);
-        if (el) el.style.left = (x - 6) + 'px';
+        if (el) el.style.left = ((x - 6) / zr) + 'px';
       };
       set('.hist-h-black', xB);
       set('.hist-h-gamma', xG);

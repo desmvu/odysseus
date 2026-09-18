@@ -19,6 +19,7 @@ SERVE_SRC = Path(__file__).resolve().parent.parent / "static/js/cookbookServe.js
 ROOT = SRC.parent.parent.parent
 ROUTES_SRC = ROOT / "routes/cookbook_routes.py"
 
+
 def test_cpu_only_drops_gpu_only_flags():
     text = SRC.read_text(encoding="utf-8")
     # A CPU-only flag derived from ngl == 0.
