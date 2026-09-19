@@ -43,6 +43,7 @@ async def test_connect_all_enabled_runs_concurrently(monkeypatch):
             args=json.dumps([]),
             env=json.dumps({}),
             url=None,
+            request_headers=None,
         ),
         SimpleNamespace(
             id=2,
@@ -52,6 +53,7 @@ async def test_connect_all_enabled_runs_concurrently(monkeypatch):
             args=json.dumps([]),
             env=json.dumps({}),
             url=None,
+            request_headers=None,
         ),
         SimpleNamespace(
             id=3,
@@ -61,6 +63,7 @@ async def test_connect_all_enabled_runs_concurrently(monkeypatch):
             args=json.dumps([]),
             env=json.dumps({}),
             url=None,
+            request_headers=None,
         ),
     ]
 
@@ -110,6 +113,7 @@ async def test_connect_all_enabled_timeout_does_not_block_other_servers(monkeypa
             args=json.dumps([]),
             env=json.dumps({}),
             url=None,
+            request_headers=None,
         ),
         SimpleNamespace(
             id=2,
@@ -119,6 +123,7 @@ async def test_connect_all_enabled_timeout_does_not_block_other_servers(monkeypa
             args=json.dumps([]),
             env=json.dumps({}),
             url=None,
+            request_headers=None,
         ),
         SimpleNamespace(
             id=3,
@@ -128,6 +133,7 @@ async def test_connect_all_enabled_timeout_does_not_block_other_servers(monkeypa
             args=json.dumps([]),
             env=json.dumps({}),
             url=None,
+            request_headers=None,
         ),
     ]
 
