@@ -382,6 +382,15 @@ def _hidden_utility_model_ids() -> set[str]:
     configured = (os.getenv("ODYSSEUS_SAM_MODEL") or "").strip()
     if configured:
         ids.add(configured)
+    # User-opt-in extra hides: cached models a user doesn't want cluttering
+    # Launch (e.g. a variant they downloaded once but always serve a
+    # different quant/repo of). Set in .env, comma-separated repo ids —
+    # this only affects Launch's listing, the weights stay on disk.
+    extra = os.getenv("ODYSSEUS_COOKBOOK_HIDDEN_MODELS") or ""
+    for repo_id in extra.split(","):
+        repo_id = repo_id.strip()
+        if repo_id:
+            ids.add(repo_id)
     return ids
 
 

@@ -58,6 +58,11 @@ let _nextAvailablePort;
 // Storage keys
 const SERVE_STATE_KEY = 'cookbook-serve-state';
 const SERVE_FAVORITES_KEY = 'cookbook-serve-favorite-models';
+const SERVE_HIDDEN_KEY = 'cookbook-serve-hidden-models';
+
+// Whether the cached-models list is currently showing hidden models (so the
+// user can find and unhide them) instead of filtering them out.
+let _showHiddenModels = false;
 
 let _cachedAllModels = [];
 const _CACHED_MODELS_SCAN_KEY = 'cookbook_cached_models_scan_v3_ltx_video';
@@ -191,6 +196,50 @@ function _toggleServeFavorite(repo) {
   else favorites.delete(key);
   _saveServeFavorites(favorites);
   return next;
+}
+
+// Client-side "hide from Launch" list — unlike the server's HIDDEN_MODEL_IDS
+// (routes/cookbook_helpers.py, for internal utility checkpoints like SAM),
+// this is a per-browser opt-in for models the user has downloaded but
+// doesn't want cluttering the list (e.g. an old quant they no longer serve).
+// The cache scan and model picker are untouched — only this list's render.
+function _loadServeHidden() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(SERVE_HIDDEN_KEY) || '[]');
+    return new Set(Array.isArray(raw) ? raw.filter(Boolean).map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function _saveServeHidden(hidden) {
+  try {
+    localStorage.setItem(SERVE_HIDDEN_KEY, JSON.stringify(Array.from(hidden || [])));
+    document.dispatchEvent(new CustomEvent('cookbook:state-dirty', { detail: { key: SERVE_HIDDEN_KEY } }));
+  } catch {}
+}
+
+function _isServeHidden(repo) {
+  return _loadServeHidden().has(String(repo || ''));
+}
+
+function _toggleServeHidden(repo) {
+  const key = String(repo || '');
+  if (!key) return false;
+  const hidden = _loadServeHidden();
+  const next = !hidden.has(key);
+  if (next) hidden.add(key);
+  else hidden.delete(key);
+  _saveServeHidden(hidden);
+  return next;
+}
+
+// Flip between the normal cached-models view and the "show hidden models"
+// view (so a user can find and unhide something they hid by mistake).
+function _toggleShowHiddenModels() {
+  _showHiddenModels = !_showHiddenModels;
+  _rerenderCachedModels();
+  return _showHiddenModels;
 }
 
 function _repoLooksAwqLike(model, repo) {
@@ -1135,10 +1184,22 @@ function _rerenderCachedModels() {
     return bf - af;
   });
 
+  const hidden = _loadServeHidden();
+  const hiddenCount = allModels.filter(m => hidden.has(String(m.repo_id || ''))).length;
+  const hiddenToggle = document.getElementById('hwfit-hidden-toggle');
+  if (hiddenToggle) {
+    hiddenToggle.textContent = _showHiddenModels ? 'Back to models' : `Hidden (${hiddenCount})`;
+    hiddenToggle.classList.toggle('active', _showHiddenModels);
+    hiddenToggle.style.display = (hiddenCount || _showHiddenModels) ? '' : 'none';
+  }
+
   let html = '';
   let visibleCount = 0;
   for (const m of allModels) {
 	    if (m.is_adapter && !m.is_diffusion && !m.is_video) continue;
+    const isHidden = hidden.has(String(m.repo_id || ''));
+    if (_showHiddenModels) { if (!isHidden) continue; }
+    else if (isHidden) continue;
     if (activeTag && m._tag !== activeTag) continue;
     if (searchVal && !(m.repo_id || '').toLowerCase().includes(searchVal)) continue;
     visibleCount++;
@@ -1181,7 +1242,7 @@ function _rerenderCachedModels() {
     html += `<div class="memory-item-actions"><button type="button" class="memory-item-btn hwfit-cached-menu-btn" title="Actions" aria-label="Model actions"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button></div>`;
     html += `</div>`;
   }
-  if (!visibleCount) html += '<div class="hwfit-loading">No matching models</div>';
+  if (!visibleCount) html += `<div class="hwfit-loading">${_showHiddenModels ? 'No hidden models' : 'No matching models'}</div>`;
   list.innerHTML = html;
 
   // Wire tag chips
@@ -1257,6 +1318,10 @@ function _rerenderCachedModels() {
       const _favIco = _favNow
         ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>'
         : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
+      const _hideNow = _isServeHidden(repo);
+      const _hideIco = _hideNow
+        ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>'
+        : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
       const items = [];
       items.push({ label: _favNow ? 'Unfavorite' : 'Favorite', icon: _favIco, action: 'favorite' });
       if (m && m.status === 'ready') items.push({ label: 'Serve', icon: _serveIco, action: 'serve' });
@@ -1265,6 +1330,7 @@ function _rerenderCachedModels() {
       }
       if (m && m.status === 'ready') items.push({ label: 'Schedule…', icon: _schedIco, action: 'schedule' });
       items.push({ label: 'Select', icon: _selectIco, action: 'select' });
+      items.push({ label: _hideNow ? 'Unhide' : 'Hide', icon: _hideIco, action: 'hide' });
       items.push({ label: 'Delete', icon: _deleteIco, action: 'delete', danger: true });
       for (const opt of items) {
         const div = document.createElement('div');
@@ -1276,6 +1342,11 @@ function _rerenderCachedModels() {
           else if (opt.action === 'favorite') {
             const favored = _toggleServeFavorite(repo);
             uiModule.showToast(favored ? 'Favorited — pinned to top' : 'Unfavorited');
+            _rerenderCachedModels();
+          }
+          else if (opt.action === 'hide') {
+            const nowHidden = _toggleServeHidden(repo);
+            uiModule.showToast(nowHidden ? 'Hidden from Launch' : 'Unhidden');
             _rerenderCachedModels();
           }
           else if (opt.action === 'delete') _deleteCachedModel(repo, item, false, m);
@@ -4307,7 +4378,7 @@ export function initServe(shared) {
   _nextAvailablePort = shared._nextAvailablePort;
 }
 
-export { _cachedAllModels, _filterCachedList, _rerenderCachedModels, _deleteCachedModel };
+export { _cachedAllModels, _filterCachedList, _rerenderCachedModels, _deleteCachedModel, _toggleShowHiddenModels };
 
 // Click the "running" pill on a serve-card → switch to Cookbook → Running
 // tab and scroll the matching task into view, with a brief flash so the

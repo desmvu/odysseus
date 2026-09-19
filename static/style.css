@@ -19589,10 +19589,26 @@ body.gallery-selecting .gallery-dl-btn,
   background-color: color-mix(in srgb, var(--cookbook-server-color) 12%, var(--bg));
 }
 /* Serve tab — match Documents sizing, but leave room for the active "Cancel"
-   label and center it vertically so the descenders don't clip. */
+   label and center it vertically so the descenders don't clip. margin-top:0
+   undoes the global `.modal-body button { margin-top:6px }` (Cookbook is a
+   .modal-body), which the sibling #serve-search <input> never gets (that
+   rule only targets <button>), so without this the buttons sit 6px lower
+   than the search box next to them. */
 #hwfit-cache-select {
   min-width: 58px;
   height: 28px;
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+/* Same row as #hwfit-cache-select and #serve-search (both 28px) — this
+   button defaults to .memory-toolbar-btn's 24px otherwise, 4px short, and
+   needs the same margin-top:0 as #hwfit-cache-select above. */
+#hwfit-hidden-toggle {
+  height: 28px;
+  margin-top: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;

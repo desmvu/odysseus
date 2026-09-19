@@ -31,6 +31,7 @@ import {
 import {
   initServe,
   _fetchCachedModels, _cachedAllModels, _filterCachedList, _rerenderCachedModels, _deleteCachedModel,
+  _toggleShowHiddenModels,
 } from './cookbookServe.js';
 
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
@@ -2242,6 +2243,13 @@ function _wireTabEvents(body) {
     }, true);
   }
 
+  // Hidden-models toggle — shows models the user hid via the per-model
+  // "Hide from Launch" menu item, so they can be found again and unhidden.
+  const hiddenToggle = document.getElementById('hwfit-hidden-toggle');
+  if (hiddenToggle) {
+    hiddenToggle.addEventListener('click', () => _toggleShowHiddenModels());
+  }
+
   // Serve sort
   const serveSort = document.getElementById('serve-sort');
   if (serveSort) {
@@ -3216,8 +3224,9 @@ function _renderRecipes() {
   html += '<button type="button" class="hwfit-gpu-btn" id="hwfit-cache-scan" title="Refresh cached models on selected server" aria-label="Refresh cached models on selected server"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10"/><path d="M3.51 15a9 9 0 0 0 14.85 3.36L23 14"/></svg></button>';
   html += '</div>';
   html += '<div class="memory-toolbar" style="margin-top:8px;">';
-  html += '<div class="memory-category-filters">';
-  html += '<input type="text" class="memory-search-input" id="serve-search" placeholder="Search cached models\u2026" style="flex:1;min-width:120px;" />';
+  html += '<div class="memory-category-filters" style="align-items:center;">';
+  html += '<input type="text" class="memory-search-input" id="serve-search" placeholder="Search cached models\u2026" style="flex:1;min-width:120px;margin-top:0;" />';
+  html += '<button type="button" class="memory-toolbar-btn" id="hwfit-hidden-toggle" title="Models hidden from this list — click to view and unhide" style="display:none;">Hidden (0)</button>';
   html += '<button class="memory-toolbar-btn" id="hwfit-cache-select">Select</button>';
   html += '</div>';
   html += '<div class="doclib-lang-chips" id="serve-tags"></div>';
@@ -3683,7 +3692,7 @@ export {
   _startBackgroundMonitor,
   _setPanelField, _setPanelCheckbox,
   _wirePanelEvents, _runPanelCmd, _runModelDownload, _buildDownloadCmd,
-  _isLocalEntry,
+  _isLocalEntry, _nextAvailablePort,
 };
 
 const cookbookModule = { open, close, isVisible, startBackgroundMonitor: _startBackgroundMonitor };
