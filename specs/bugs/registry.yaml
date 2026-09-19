@@ -261,3 +261,20 @@ bugs:
       rolled out across three commits as more affected modules were found.
     file: specs/bugs/BUG-2026-09-17T195822-ui-zoom-position-math.md
     status: resolved
+  - bug_id: BUG-2026-09-20T000000
+    date: "2026-09-20"
+    severity: high
+    priority: high
+    scope: host-infra
+    summary: >-
+      Qwen3-14B llama-server silently fell back to CPU after a host reboot
+      reassigned NVIDIA device major numbers; the stale /etc/cdi/nvidia.yaml
+      spec (3 days old) still pointed the container's device cgroup at the
+      old /dev/nvidia-uvm major number, so cuInit failed with cudaErrorUnknown
+      while nvidia-smi (NVML, unaffected devices) kept working. Reproduced
+      identically in stock unrelated nvidia/cuda containers with zero
+      Odysseus code involved -- exonerates the 41c87b54 Dockerfile/compose
+      CUDA rework. No code fix; host command needed (sudo nvidia-ctk cdi
+      generate --output=/etc/cdi/nvidia.yaml).
+    file: specs/bugs/BUG-2026-09-20T000000-stale-cdi-spec-cpu-fallback.md
+    status: resolved
