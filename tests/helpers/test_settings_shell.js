@@ -167,6 +167,7 @@ function queryAll(root, selector) {
 
 class DocumentShim {
   constructor() {
+    this.documentElement = new Element('html', this);
     this.body = new Element('body', this);
     this.head = new Element('head', this);
     this.listeners = new Map();
