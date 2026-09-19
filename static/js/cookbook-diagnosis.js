@@ -19,6 +19,7 @@ import {
   _serveAutoRetryReplace,
   _serveAutoRetryRemove,
   _serveAutoFix,
+  _nextAvailablePort,
   // Plain specifier (no ?v=) — must match every other cookbook.js importer so the
   // browser loads it once. See cookbook-hwfit.js.
 } from './cookbook.js';
@@ -402,7 +403,12 @@ export const ERROR_PATTERNS = [
     message: 'Port is already in use. Another server may be running.',
     fixes: [
       { label: 'Kill existing vLLM', action: (panel) => _runQuickCmd(panel, 'pkill -f vllm') },
-      { label: 'Use port 8001', action: (panel) => _setPanelField(panel, 'port', '8001') },
+      // Was a hardcoded 'Use port 8001', which stomped a deliberately
+      // different configured port (e.g. a separate image-gen port) with the
+      // default LLM-serve port. _nextAvailablePort() checks running/queued
+      // tasks and saved presets, so it picks a port nothing else is using
+      // instead of assuming 8001 is free or the right slot for this panel.
+      { label: 'Use next free port', action: (panel) => _setPanelField(panel, 'port', String(_nextAvailablePort())) },
     ],
   },
   {
