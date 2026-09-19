@@ -147,26 +147,48 @@ const _RECIPES = [
     label: 'Any GGUF model',
     match: () => true,
     variants: {
-      // CMAKE_ARGS alone only affects a *source* build -- if pip/uv finds a
-      // matching prebuilt (CPU-only) wheel for this platform on PyPI it just
-      // downloads that and silently ignores CMAKE_ARGS, with no error. Use
-      // abetlen's prebuilt-CUDA wheel index instead (same one the Dockerfile
-      // uses for the image's own llama-cpp-python install) so this actually
-      // installs a GPU build instead of quietly no-op'ing to CPU.
-      pip:    { commands: ['uv pip install -U "llama-cpp-python[server]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 --force-reinstall'] },
+      // `pip` is resolved dynamically by recipeCommands() from the detected
+      // hwfit backend (cuda / rocm / metal / cpu) -- see _llamaCppPipCommand
+      // below. CMAKE_ARGS alone only affects a *source* build: if pip/uv
+      // finds a matching prebuilt wheel for this platform on PyPI it just
+      // downloads that and silently ignores CMAKE_ARGS, with no error, so
+      // ROCm/Metal builds also need --no-binary to force a real source build.
+      pip:    { dynamic: 'llama_cpp' },
       docker: { commands: ['docker pull ghcr.io/ggml-org/llama.cpp:server-cuda'] },
     },
   },
 ];
 
+// llama-cpp-python[server] install command for the detected GPU backend.
+// cuda uses abetlen's prebuilt CUDA wheel index (fast, no local compiler
+// needed). rocm/metal have no prebuilt wheel index, so they force a real
+// source build via --no-binary (CMAKE_ARGS alone would silently no-op onto
+// a cached CPU wheel otherwise). Anything else (no GPU detected, or
+// detection hasn't run yet) gets the plain CPU install.
+function _llamaCppPipCommand(gpuBackend) {
+  const b = String(gpuBackend || '').toLowerCase();
+  if (b === 'cuda') {
+    return 'uv pip install -U "llama-cpp-python[server]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 --force-reinstall';
+  }
+  if (b === 'rocm') {
+    return 'CMAKE_ARGS="-DGGML_HIPBLAS=on" uv pip install -U "llama-cpp-python[server]" --no-binary llama-cpp-python --force-reinstall';
+  }
+  if (b === 'metal' || b === 'mps' || b === 'apple') {
+    return 'CMAKE_ARGS="-DGGML_METAL=on" uv pip install -U "llama-cpp-python[server]" --no-binary llama-cpp-python --force-reinstall';
+  }
+  return 'uv pip install -U "llama-cpp-python[server]"';
+}
+
 export const RECIPE_VARIANTS = ['pip', 'docker'];
 export const RECIPE_DEFAULT_VARIANT = 'pip';
 
 // Get the commands array for a recipe + variant. Falls back to pip when
-// the requested variant isn't defined for the recipe.
-export function recipeCommands(recipe, variant) {
+// the requested variant isn't defined for the recipe. gpuBackend (hwfit's
+// detected 'cuda'/'rocm'/'metal'/'' etc.) resolves any `dynamic` variant.
+export function recipeCommands(recipe, variant, gpuBackend) {
   if (!recipe) return [];
   const v = (recipe.variants || {})[variant] || (recipe.variants || {}).pip;
+  if (v && v.dynamic === 'llama_cpp') return [_llamaCppPipCommand(gpuBackend)];
   return (v && v.commands) || [];
 }
 

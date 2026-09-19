@@ -1277,7 +1277,7 @@ async function _fetchDependencies() {
       // Initial recipe: the generic fallback (matches first time, no model id).
       const initial = pickRecipe(backend, '') || candidates[0];
       const initialVariant = RECIPE_DEFAULT_VARIANT;
-      const initialCmds = recipeCommands(initial, initialVariant);
+      const initialCmds = recipeCommands(initial, initialVariant, _hwfitCache?.system?.backend);
       const initialRuntimeCmds = _recipeRuntimeCommands(initialCmds, initialVariant);
       const rightActive = initialVariant === 'docker' ? ' mode-right' : '';
       return `<div class="cookbook-dep-recipe-panel" data-dep-recipe-panel="${esc(backend)}" data-dep-recipe-active-variant="${esc(initialVariant)}" style="display:none;margin:-4px 0 8px;padding:8px 12px 10px;background:rgba(0,0,0,0.04);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;">
@@ -1662,7 +1662,7 @@ async function _fetchDependencies() {
       const variant = panel.dataset.depRecipeActiveVariant || RECIPE_DEFAULT_VARIANT;
       const sel = panel.querySelector('[data-dep-recipe-pick]');
       const recipe = pickRecipe(backend, (sel && sel.value) || '');
-      const cmds = recipeCommands(recipe, variant);
+      const cmds = recipeCommands(recipe, variant, _hwfitCache?.system?.backend);
       const runtimeCmds = _recipeRuntimeCommands(cmds, variant);
       const pre = panel.querySelector('[data-dep-recipe-cmds]');
       if (pre) {
