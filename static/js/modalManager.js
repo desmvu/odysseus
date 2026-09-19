@@ -315,11 +315,15 @@ function _applyDockPos(dock) {
     return;
   }
   if (!_dockPos) return;
+  // _dockPos.left is the CENTER x the user dropped the dock at (not its left
+  // edge) so adding/removing a chip changes the dock's width without ever
+  // shifting it off that center point — same translateX(-50%) trick as the
+  // composer-anchored branch above, just anchored to a custom point instead.
   dock.style.left = `${_dockPos.left}px`;
   dock.style.top = `${_dockPos.top}px`;
   dock.style.right = 'auto';
   dock.style.bottom = 'auto';
-  dock.style.transform = 'none';
+  dock.style.transform = 'translateX(-50%)';
 }
 
 // True when `chipRect` is close enough to the dock's current location that
@@ -994,15 +998,19 @@ function _wireChipDrag(chip, dock) {
       // style write, and persist the pre-zoom (zoom-independent) value so a
       // position saved at one text-size setting doesn't render wrong at
       // another (including Default, where this bug was invisible).
+      // Store/apply the CENTER x (not the left edge): a later chip being
+      // added or removed changes the dock's width, and an edge-anchored
+      // position would leave the group visibly off-center around whatever
+      // point the user actually dropped it at.
       const _zr = _zoomRatio();
-      const leftPreZoom = newLeft / _zr;
+      const centerXPreZoom = (newLeft + dockRectNow.width / 2) / _zr;
       const topPreZoom = newTop / _zr;
-      dock.style.left = `${leftPreZoom}px`;
+      dock.style.left = `${centerXPreZoom}px`;
       dock.style.top  = `${topPreZoom}px`;
       dock.style.right = 'auto';
       dock.style.bottom = 'auto';
-      dock.style.transform = 'none';
-      _dockPos = { left: leftPreZoom, top: topPreZoom };
+      dock.style.transform = 'translateX(-50%)';
+      _dockPos = { left: centerXPreZoom, top: topPreZoom };
       _saveDockState();
     }
   };
