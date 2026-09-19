@@ -16,6 +16,7 @@ import spinnerModule from './spinner.js';
 import { openLibrary, closeLibrary, isLibraryOpen, initLibrary } from './documentLibrary.js';
 import signatureModule from './signature.js';
 import * as Modals from './modalManager.js';
+import { suspendDock } from './modalSnap.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
 // The "Larger" text-size setting (.ui-scale-125 on <html>) applies CSS
@@ -6936,6 +6937,10 @@ function _zoomRatio() {
       _minimizedDocId = activeDocId;
       _markDocVisibleState(_lastSessionId, 'minimized');
       _ensureDocChipRegistered();
+      try {
+        const docModal = document.getElementById('doc-panel');
+        if (docModal) suspendDock(docModal);
+      } catch (_) {}
       Modals.minimize('doc-panel');
     } else if (Modals.isRegistered('doc-panel')) {
       _minimizedDocId = null;
@@ -7379,6 +7384,10 @@ function _zoomRatio() {
           try { switchToDoc(target.id); } catch (e) { console.error('Minimize restored doc failed:', e); }
           closePanel('down');
         } else {
+          try {
+            const docModal = document.getElementById('doc-panel');
+            if (docModal) suspendDock(docModal);
+          } catch (_) {}
           Modals.minimize('doc-panel');
         }
         return;

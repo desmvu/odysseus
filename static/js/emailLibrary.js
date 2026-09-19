@@ -24,7 +24,7 @@ import {
 } from './emailLibrary/signatureFold.js';
 import { state } from './emailLibrary/state.js';
 import { getSettings } from './appConfig.js';
-import { collapseSidebarToRail } from './modalSnap.js';
+import { collapseSidebarToRail, suspendDock } from './modalSnap.js';
 import { emailApiUrl } from './emailShared.js';
 import { bindMenuDismiss, dismissOrRemove } from './escMenuStack.js';
 
@@ -2944,6 +2944,10 @@ export function openEmailLibrary(opts = {}) {
     // Desktop: keep Email open when there is enough room for it plus the
     // compose/document pane. Mobile still tabs down so the doc owns the screen.
     if (_prepareEmailWindowForDocument(document.getElementById('email-lib-modal'))) {
+      try {
+        const libModal = document.getElementById('email-lib-modal');
+        if (libModal) suspendDock(libModal);
+      } catch (_) {}
       if (!Modals.minimize('email-lib-modal')) closeEmailLibrary();
     }
     if (state._onEmailClick) state._onEmailClick({ compose: true });
@@ -6705,6 +6709,7 @@ function _wireAttachmentHandlers(reader, folder) {
           const ownerModal = openBtn.closest('.modal');
           if (ownerModal && ownerModal.id && _prepareEmailWindowForDocument(ownerModal)) {
             try {
+              try { suspendDock(ownerModal); } catch (_) {}
               const ok = Modals.minimize(ownerModal.id);
               if (!ok) ownerModal.classList.add('hidden');
             } catch (_) {
