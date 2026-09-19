@@ -12,7 +12,12 @@
 # host's numeric render group id when needed. See docker/gpu.amd.yml for details.
 services:
   odysseus:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_OPTIONAL: "true"
+    env_file:
+      - .env
     ports:
       - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
     volumes:
