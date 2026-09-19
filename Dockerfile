@@ -37,7 +37,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# CUDA toolkit for llama.cpp
+# CUDA toolkit for llama.cpp — a minimal package set (nvcc + cudart + cuBLAS +
+# driver stubs), not the full `cuda-toolkit` metapackage. The metapackage also
+# pulls nsight-compute, cuda-gdb, sanitizer, cuFFT, cuSPARSE, NPP, nvrtc-dev,
+# and docs — none of which GGML_CUDA needs to build llama-server — inflating
+# the image by several GB for nothing. The component packages are always
+# version-suffixed (e.g. cuda-nvcc-13-4, no unversioned alias exists), so the
+# suffix is resolved dynamically from cuda-toolkit's own candidate version
+# instead of hardcoding one that would silently break `apt-get install` the
+# next time NVIDIA bumps their repo. Verified end-to-end: configure, build,
+# and `ldd` on the resulting llama-server binary all resolve libcudart/
+# libcublas/libcublasLt correctly against this set alone.
 RUN apt-get update \
     && apt-get install -y wget gnupg \
     && wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
@@ -46,7 +56,10 @@ RUN apt-get update \
     && echo '[hash_algorithms]' > /etc/crypto-policies/back-ends/apt-sequoia.config \
     && echo 'sha1 = "always"' >> /etc/crypto-policies/back-ends/apt-sequoia.config \
     && apt-get update \
-    && apt-get install -y cuda-toolkit \
+    && CUDA_VER="$(apt-cache policy cuda-toolkit | grep Candidate | sed -E 's/.*: ([0-9]+)\.([0-9]+).*/\1-\2/')" \
+    && apt-get install -y --no-install-recommends \
+         cuda-nvcc-$CUDA_VER cuda-cudart-dev-$CUDA_VER \
+         libcublas-$CUDA_VER libcublas-dev-$CUDA_VER cuda-driver-dev-$CUDA_VER \
     && rm -f /etc/crypto-policies/back-ends/apt-sequoia.config \
     && rm -rf /var/lib/apt/lists/*
 

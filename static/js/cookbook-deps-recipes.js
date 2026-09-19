@@ -147,7 +147,13 @@ const _RECIPES = [
     label: 'Any GGUF model',
     match: () => true,
     variants: {
-      pip:    { commands: ['CMAKE_ARGS="-DGGML_CUDA=on" uv pip install -U "llama-cpp-python[server]"'] },
+      // CMAKE_ARGS alone only affects a *source* build -- if pip/uv finds a
+      // matching prebuilt (CPU-only) wheel for this platform on PyPI it just
+      // downloads that and silently ignores CMAKE_ARGS, with no error. Use
+      // abetlen's prebuilt-CUDA wheel index instead (same one the Dockerfile
+      // uses for the image's own llama-cpp-python install) so this actually
+      // installs a GPU build instead of quietly no-op'ing to CPU.
+      pip:    { commands: ['uv pip install -U "llama-cpp-python[server]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 --force-reinstall'] },
       docker: { commands: ['docker pull ghcr.io/ggml-org/llama.cpp:server-cuda'] },
     },
   },
