@@ -277,14 +277,26 @@ export function initSlashAutocomplete(textarea) {
   textarea.addEventListener('focus', () => { if (textarea.value.startsWith('/')) refresh(); });
   textarea.addEventListener('blur', () => { setTimeout(hide, 120); });  // delay so click works
 
-  textarea.addEventListener('keydown', (e) => {
+  // app.js wires at least two separate "Enter submits the composer" keydown
+  // listeners directly on #message (one of them doesn't even check
+  // e.defaultPrevented), and both are registered before this module's init()
+  // runs. Listeners on the same element fire in registration order
+  // regardless of insertion order changes here, so a same-target bubble-phase
+  // listener can never reliably win that race (see slashCommands.js's tour
+  // code for the same problem/fix). Attaching on `document` in the capture
+  // phase instead guarantees we see Enter/Tab/Arrow keys before any
+  // bubble-phase listener on #message itself, independent of script order.
+  document.addEventListener('keydown', (e) => {
+    if (e.target !== textarea) return;
     if (!visible || !items.length) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      e.stopPropagation();
       selectedIdx = (selectedIdx + 1) % items.length;
       _render(popup, items, selectedIdx, textarea.value);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      e.stopPropagation();
       selectedIdx = (selectedIdx - 1 + items.length) % items.length;
       _render(popup, items, selectedIdx, textarea.value);
     } else if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
@@ -299,12 +311,14 @@ export function initSlashAutocomplete(textarea) {
         return;
       }
       e.preventDefault();
+      e.stopPropagation();
       insert(items[selectedIdx].token);
     } else if (e.key === 'Escape') {
       e.preventDefault();
+      e.stopPropagation();
       hide();
     }
-  });
+  }, true);
 
   // Re-position on window resize / scroll
   window.addEventListener('resize', () => { if (visible) _position(popup, textarea); });

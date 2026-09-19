@@ -18,6 +18,7 @@ import fileHandlerModule from './fileHandler.js';
 import searchModule from './search.js';
 import documentModule from './document.js?v=20260815approvalsave1';
 import * as emailInbox from './emailInbox.js?v=20260815approvalsave1';
+import { initSlashAutocomplete } from './slashAutocomplete.js';
 import codeRunnerModule from './codeRunner.js';
 import slashCommands, { initSlashCommands, isCommand, handleSlashCommand, handleSetupInput, handleSetupWizard, typewriterInto } from './slashCommands.js?v=20260815approvalsave1';
 import createResearchSynapse from './researchSynapse.js';
@@ -819,10 +820,15 @@ import { loadPanel } from './panels.js';
     // Wire the slash-command autocomplete popup on the chat composer. The
     // dispatcher already handles the typed command — this just surfaces the
     // registry as a discoverable menu when the user starts a message with /.
-    import('./slashAutocomplete.js').then(mod => {
-      const ta = document.getElementById('message');
-      if (ta && mod.initSlashAutocomplete) mod.initSlashAutocomplete(ta);
-    }).catch(() => {});
+    // Static import (not a lazy dynamic import()) so 'input'/'focus' wiring
+    // attaches synchronously instead of a frame late. Its Enter/Tab/Arrow
+    // interception itself is registered on `document` in capture phase
+    // (inside slashAutocomplete.js) so it wins regardless of script order —
+    // app.js wires multiple bubble-phase Enter-to-submit listeners directly
+    // on #message that would otherwise submit the in-progress "/" command
+    // before this popup's own handler ran.
+    const _slashAcTa = document.getElementById('message');
+    if (_slashAcTa) initSlashAutocomplete(_slashAcTa);
 
     // ArrowUp on the composer recalls previous user prompts from this chat.
     const _wireArrowUpRecall = (composer) =>
