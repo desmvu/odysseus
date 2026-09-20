@@ -2972,6 +2972,15 @@ export function openTasks(focusId, opts) {
   _builtinActions = null;
   _triggerEvents = null;
 
+  // closeTasks() sets _open = false synchronously but the previous modal's
+  // DOM removal is deferred up to 250ms (closing animation). A reopen inside
+  // that window would otherwise create a second #tasks-modal with the same
+  // id, and any document.getElementById('tasks-modal') lookup (including
+  // this modal's own listeners) can resolve to the old, mid-removal element
+  // instead of the new one — the modal silently failing to appear until a
+  // second open, once the first has fully cleared.
+  document.getElementById('tasks-modal')?.remove();
+
   const modal = document.createElement('div');
   modal.className = 'modal';
   modal.id = 'tasks-modal';

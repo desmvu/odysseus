@@ -213,8 +213,39 @@ function _loadServeHidden() {
 }
 
 function _saveServeHidden(hidden) {
+  const list = Array.from(hidden || []);
   try {
-    localStorage.setItem(SERVE_HIDDEN_KEY, JSON.stringify(Array.from(hidden || [])));
+    localStorage.setItem(SERVE_HIDDEN_KEY, JSON.stringify(list));
+    document.dispatchEvent(new CustomEvent('cookbook:state-dirty', { detail: { key: SERVE_HIDDEN_KEY } }));
+  } catch {}
+  // Sync to the account so hidden models stay hidden across devices
+  // instead of only on the browser that hid them (/api/prefs is the same
+  // per-user key/value store theme.js already uses for cross-device sync).
+  try {
+    fetch('/api/prefs/cookbook-serve-hidden-models', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ value: list }),
+    }).catch(() => {});
+  } catch {}
+}
+
+// Pull the account's hidden-models list once on load — if the server has a
+// synced value (set from another device), it wins over this browser's local
+// copy and we re-render. A server value of null means nothing has ever been
+// synced yet (fresh account or pre-sync install), so the local list stays
+// authoritative until the next change pushes it up.
+let _serveHiddenSynced = false;
+async function _syncServeHiddenFromServer() {
+  if (_serveHiddenSynced) return;
+  _serveHiddenSynced = true;
+  try {
+    const res = await fetch('/api/prefs/cookbook-serve-hidden-models', { credentials: 'same-origin' });
+    const data = await res.json();
+    if (!Array.isArray(data.value)) return;
+    const list = data.value.filter(Boolean).map(String);
+    localStorage.setItem(SERVE_HIDDEN_KEY, JSON.stringify(list));
     document.dispatchEvent(new CustomEvent('cookbook:state-dirty', { detail: { key: SERVE_HIDDEN_KEY } }));
   } catch {}
 }
@@ -1624,8 +1655,9 @@ function _rerenderCachedModels() {
         const _savedUnified = !!sv('unified_mem', false);
         const _llamaModeRaw = sv('llama_mode', _llamaModeDefault);
         const _llamaMode = _savedUnified && _llamaModeRaw !== 'cpu' ? 'unified' : _llamaModeRaw;
-        panelHtml += `<label class="hwfit-backend-llamacpp">${_l('Inference','CPU = -ngl 0. GPU = -ngl 99. Unified = GPU offload plus GGML_CUDA_ENABLE_UNIFIED_MEMORY=1 for unified-memory CUDA systems.')}<div class="mode-toggle mode-toggle-three${_llamaMode === 'gpu' ? ' mode-mid' : (_llamaMode === 'unified' ? ' mode-third' : '')}" data-llama-mode-toggle style="display:flex;width:100%;height:32px;position:relative;top:2px;"><button type="button" class="mode-toggle-btn${_llamaMode === 'cpu' ? ' active' : ''}" data-llama-mode="cpu" aria-pressed="${_llamaMode === 'cpu'}" style="flex:1;"><span style="position:relative;top:-7px;">CPU</span></button><button type="button" class="mode-toggle-btn${_llamaMode === 'gpu' ? ' active' : ''}" data-llama-mode="gpu" aria-pressed="${_llamaMode === 'gpu'}" style="flex:1;"><span style="position:relative;top:-7px;">GPU</span></button><button type="button" class="mode-toggle-btn${_llamaMode === 'unified' ? ' active' : ''}" data-llama-mode="unified" aria-pressed="${_llamaMode === 'unified'}" style="flex:1;"><span style="position:relative;top:-7px;">Unified</span></button></div><input type="hidden" class="hwfit-sf" data-field="llama_mode" value="${esc(_llamaMode)}" /><input type="hidden" class="hwfit-sf" data-field="unified_mem" value="${_llamaMode === 'unified' ? '1' : ''}" /></label>`;
+        panelHtml += `<label class="hwfit-backend-llamacpp hwfit-inference-toggle">${_l('Inference','CPU = -ngl 0. GPU = -ngl 99. Unified = GPU offload plus GGML_CUDA_ENABLE_UNIFIED_MEMORY=1 for unified-memory CUDA systems.')}<div class="mode-toggle mode-toggle-three${_llamaMode === 'gpu' ? ' mode-mid' : (_llamaMode === 'unified' ? ' mode-third' : '')}" data-llama-mode-toggle style="display:flex;width:100%;height:32px;position:relative;top:2px;"><button type="button" class="mode-toggle-btn${_llamaMode === 'cpu' ? ' active' : ''}" data-llama-mode="cpu" aria-pressed="${_llamaMode === 'cpu'}" style="flex:1;"><span style="position:relative;top:-7px;">CPU</span></button><button type="button" class="mode-toggle-btn${_llamaMode === 'gpu' ? ' active' : ''}" data-llama-mode="gpu" aria-pressed="${_llamaMode === 'gpu'}" style="flex:1;"><span style="position:relative;top:-7px;">GPU</span></button><button type="button" class="mode-toggle-btn${_llamaMode === 'unified' ? ' active' : ''}" data-llama-mode="unified" aria-pressed="${_llamaMode === 'unified'}" style="flex:1;"><span style="position:relative;top:-7px;">Unified</span></button></div><input type="hidden" class="hwfit-sf" data-field="llama_mode" value="${esc(_llamaMode)}" /><input type="hidden" class="hwfit-sf" data-field="unified_mem" value="${_llamaMode === 'unified' ? '1' : ''}" /></label>`;
       }
+      panelHtml += `<div class="hwfit-row1-break" aria-hidden="true"></div>`;
       panelHtml += `<label>${_l('venv / conda','Path to a Python venv, or a Conda env name/path when the selected server uses Conda.')}<input type="text" class="hwfit-sf hwfit-sf-wide" data-field="venv" value="${esc(sv('venv', _es.envPath || _srvVenv || ''))}" placeholder="~/venv or conda-env" /></label>`;
       const defaultPort = defaultBackend === 'ollama' ? '11434' : _nextAvailablePort();
       panelHtml += `<label>${_l('Port','HTTP port for the API server')}<input type="text" class="hwfit-sf" data-field="port" value="${esc(sv('port', defaultPort))}" /></label>`;
@@ -4376,6 +4408,7 @@ export function initServe(shared) {
   _launchServeTask = shared._launchServeTask;
   _retryDownload = shared._retryDownload;
   _nextAvailablePort = shared._nextAvailablePort;
+  _syncServeHiddenFromServer();
 }
 
 export { _cachedAllModels, _filterCachedList, _rerenderCachedModels, _deleteCachedModel, _toggleShowHiddenModels };

@@ -888,6 +888,12 @@ async function showModelSelector() {
       resolve(result);
     }
     // (cancelBtn removed — overlay X / outside-click / Esc still call cleanup)
+    // Mobile swipe-down-to-dismiss (static/js/ui.js) MINIMIZES this modal
+    // (modalManager.js's _SWIPE_DOWN_MINIMIZES includes compare-model-
+    // overlay) instead of closing it — the overlay stays in the DOM,
+    // just hidden, so this function's Promise stays pending until the
+    // user genuinely closes it (X button / dock chip's ×, both routing
+    // through cleanup() above) or restores it and clicks Start.
     startBtn.addEventListener('click', async () => {
       if (!_modelsLoaded) return;
       let selected = selections.filter(Boolean);

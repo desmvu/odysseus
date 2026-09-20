@@ -231,6 +231,14 @@ const _chipPositions = new Map(); // modalId -> { left, top }
 // Which page of chips is showing when there are more chips than fit in one
 // row (desktop only — see PAGE_SIZE in _renderDock).
 let _dockPage = 0;
+// Mobile-only: order in which tools were most recently minimized, used to
+// cap the dock to the 3 latest chips instead of paging (see _renderDock).
+const _mobileRecentOrder = [];
+function _touchMobileRecency(id) {
+  const i = _mobileRecentOrder.indexOf(id);
+  if (i !== -1) _mobileRecentOrder.splice(i, 1);
+  _mobileRecentOrder.push(id);
+}
 // User-dragged position of the dock pad itself (both desktop and mobile).
 // Remembered across minimize→restore→minimize cycles so the dock reappears
 // where the user last parked it instead of snapping back to bottom-center.
@@ -412,9 +420,29 @@ function _renderDock() {
   const maxPage = paginated ? Math.ceil(renderIds.length / PAGE_SIZE) - 1 : 0;
   if (_dockPage > maxPage) _dockPage = maxPage;
   if (_dockPage < 0) _dockPage = 0;
+  // Mobile has no room for desktop's prev/next paging strip, so instead of
+  // accumulating every minimized tool it caps the dock to the 3 most
+  // recently minimized ones — older chips just drop off (still restorable
+  // via their sidebar button/gear, since this only changes what's RENDERED,
+  // not _state or _dockOrder). _mobileRecentOrder tracks minimize recency;
+  // ids never minimized (e.g. a currently-open free-positioned chip) sort
+  // as newest so an active tool's chip is never the one dropped.
+  let mobileIds = renderIds;
+  if (isMobile && renderIds.length > PAGE_SIZE) {
+    const known = _mobileRecentOrder.filter(id => renderIds.includes(id));
+    const unknown = renderIds.filter(id => !_mobileRecentOrder.includes(id));
+    mobileIds = [...known, ...unknown].slice(-PAGE_SIZE);
+    // A minimized tool bumped off the visible 3-chip cap has no chip to
+    // restore from, so its sidebar/rail red dot is misleading — clear it.
+    // Re-shown ids get their dot re-applied in case a prior drop cleared it.
+    for (const id of minimizedIds) {
+      const st = _state.get(id);
+      if (st) _setBadge(st.btnIds, mobileIds.includes(id));
+    }
+  }
   const pageIds = paginated
     ? renderIds.slice(_dockPage * PAGE_SIZE, _dockPage * PAGE_SIZE + PAGE_SIZE)
-    : renderIds;
+    : mobileIds;
 
   // If a brand-new chip is joining and the existing chips are already
   // free-positioned at body level (e.g. previously chain-dropped), the
@@ -1402,6 +1430,7 @@ export function minimize(id) {
     }
   }
   s.isMinimized = true;
+  _touchMobileRecency(id);
   _setBadge(s.btnIds, true);
   // Several tools (gallery.js, research/panel.js, ...) add `.active` to their
   // own sidebar/rail button on open and only remove it on a full close —
@@ -1443,6 +1472,12 @@ export function restore(id) {
   }
   s.isMinimized = false;
   _setBadge(s.btnIds, false);
+  // Restoring should re-apply the same '.active' highlight minimize() strips
+  // (see the comment in minimize() below) — otherwise a tool restored from
+  // the dock reopens with its sidebar/rail row looking unselected.
+  for (const btnId of s.btnIds) {
+    document.getElementById(btnId)?.classList.add('active');
+  }
   // Intentionally don't clear _chipPositions here: on mobile a free-
   // positioned chip is meant to act as a persistent toggle that stays
   // visible alongside the open modal, so the user can re-collapse it with
@@ -1508,6 +1543,17 @@ export function close(id) {
     }
   }
   _setBadge(s.btnIds, false);
+  // minimize() strips '.active' from every btnId (gallery.js, research/
+  // panel.js, and restore() itself all add it back on open/restore) but
+  // close() never did the same — a tool closed after ever being minimized+
+  // restored (restore() adds '.active'), or one whose own open() adds
+  // '.active' unconditionally (gallery, research), kept the red
+  // .list-item.active / .icon-rail-btn active-section styling stuck on its
+  // sidebar/rail button forever after closing, with no way to clear it
+  // short of a page reload.
+  for (const btnId of s.btnIds) {
+    document.getElementById(btnId)?.classList.remove('active');
+  }
   _state.delete(id);
   _chipPositions.delete(id);
   _saveDockState();
@@ -1653,12 +1699,30 @@ if (document.readyState !== 'loading') _startModalWiring();
 else document.addEventListener('DOMContentLoaded', _startModalWiring);
 
 // Tools that survive a swipe-down as a dock chip. Anything else falls
-// through to the legacy close handler and goes away entirely.
+// through to the legacy close handler and goes away entirely. Every tool
+// modal is listed here so swipe-down always minimizes on mobile — without
+// an entry, swiping a tool away closed it outright instead of leaving a
+// chip, unlike tapping its own minimize button (which always worked).
 const _SWIPE_DOWN_MINIMIZES = new Set([
   'cookbook-modal',
   'calendar-modal',
   'email-lib-modal',
+  'gallery-modal',
+  'tasks-modal',
+  'doclib-modal',
+  'memory-modal',
+  'research-overlay',
+  'theme-modal',
+  'compare-model-overlay',
 ]);
+// compare-model-overlay: minimizing it works fine with the generic
+// _autoRegister() path -- restore()'s unhide/bring-to-front is generic and
+// doesn't depend on a custom restoreFn, and the default closeFn clicks the
+// real .close-btn (selector.js's headerCloseBtn), which already resolves
+// the picker's Promise via cleanup(false). No custom register() needed.
+// settings-modal is deliberately excluded: unlike a tool panel, swiping it
+// away should close it outright, not leave a dock chip -- it holds no
+// pending async state that would need a proper resolve.
 // Same idea but matched by id prefix — so dynamically-created modals
 // (per-email reader tabs) survive swipe-down too.
 const _SWIPE_DOWN_MINIMIZES_PREFIX = ['email-reader-'];
@@ -1705,7 +1769,17 @@ window.addEventListener('modal-dismissed', (e) => {
   const s = _state.get(id);
   if (!s) return;
   s.isMinimized = true;
+  _touchMobileRecency(id);
   _setBadge(s.btnIds, true);
+  // minimize() (the `_` button path) strips '.active' here too -- this is
+  // a separate, duplicated minimize implementation for the swipe-down
+  // gesture and was missing the same line, so swiping a tool away left its
+  // sidebar/rail button showing the full red .list-item.active /
+  // .icon-rail-btn.active-section highlight the whole time it sat
+  // minimized in the dock, not just the small rail-minimized dot.
+  for (const btnId of s.btnIds) {
+    document.getElementById(btnId)?.classList.remove('active');
+  }
   const modal = document.getElementById(id);
   if (modal) {
     const isEmailModal = id === 'email-lib-modal' || id.startsWith('email-reader-');

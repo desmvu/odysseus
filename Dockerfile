@@ -109,6 +109,10 @@ RUN pip install --no-cache-dir llama-cpp-python==0.3.34 \
     --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 \
     --force-reinstall
 RUN pip install --no-cache-dir nvidia-cuda-runtime-cu12 nvidia-cublas-cu12
+# base image (python:3.14-slim) never sets LD_LIBRARY_PATH, so the trailing
+# $LD_LIBRARY_PATH reference is flagged by BuildKit's UndefinedVar check;
+# declaring it here with an empty default makes the reference intentional.
+ARG LD_LIBRARY_PATH=""
 ENV LD_LIBRARY_PATH=/usr/local/lib/python3.14/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.14/site-packages/nvidia/cublas/lib:$LD_LIBRARY_PATH
 
 # Pre-built llama.cpp server

@@ -225,6 +225,7 @@ export function toggle() {
       overlay.style.display = '';
       const btn = document.getElementById('tool-research-btn');
       if (btn) btn.classList.remove('minimized');
+      if (btn) btn.classList.add('active');
       return;
     }
     closePanel();
@@ -240,6 +241,7 @@ export function openPanel(focusJobId) {
       overlay.style.display = '';
       const btn = document.getElementById('tool-research-btn');
       if (btn) btn.classList.remove('minimized');
+      if (btn) btn.classList.add('active');
     }
     document.body.classList.add('research-panel-view');
     if (focusJobId) _focusJob(focusJobId);
@@ -451,6 +453,7 @@ function _wireEvents(pane) {
     if (overlay) overlay.style.display = 'none';
     const btn = document.getElementById('tool-research-btn');
     if (btn) btn.classList.add('minimized');
+    if (btn) btn.classList.remove('active');
   });
   pane.querySelector('#research-start-btn').addEventListener('click', _handleStart);
   pane.querySelector('#research-add-btn').addEventListener('click', _handleAdd);

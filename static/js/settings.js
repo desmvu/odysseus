@@ -5051,7 +5051,7 @@ async function initUnifiedIntegrations() {
               <div class="settings-row"><label class="settings-label">URL</label><input id="uf-mcp-url" class="settings-input" placeholder="http://localhost:3001/sse"></div>
               <div class="settings-row" style="align-items:flex-start;"><label class="settings-label" style="padding-top:7px;">Headers</label><textarea id="uf-mcp-headers" class="settings-input" rows="4" spellcheck="false" autocomplete="off" style="min-height:88px;resize:vertical;font-family:var(--mono, 'Fira Code', monospace);line-height:1.45;" placeholder='{
   "Authorization": "Bearer gate-token",
-  "X-Portainer-API-Key": "ptr_your-token"
+  "X-Api-Key": "your-api-key"
 }'></textarea></div>
             </div>
             <div class="settings-row" style="margin-top:10px;align-items:center;justify-content:flex-end;gap:6px;">

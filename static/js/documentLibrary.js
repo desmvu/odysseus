@@ -1635,18 +1635,29 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
   }
 
   export function openLibrary(opts) {
-    if (_libraryOpen) {
-      // Recover from stuck state: the swipe-to-dismiss in ui.js adds .hidden
-      // to the modal without calling closeLibrary, so _libraryOpen can stay
-      // true even though the modal is gone or invisible. Detect and reset.
-      const existing = document.getElementById('doclib-modal');
-      if (!existing || existing.classList.contains('hidden')) {
-        if (existing) existing.remove();
-        _libraryOpen = false;
-      } else {
-        return;
-      }
-    }
+    // _libraryOpen is not a reliable "already open" signal on its own:
+    // closeLibrary() sets it false synchronously but defers the actual
+    // #doclib-modal removal up to 250ms (closing animation), and separately
+    // ui.js's swipe-to-dismiss can add .hidden to the modal without ever
+    // calling closeLibrary, leaving _libraryOpen stuck true with a hidden
+    // (or stale/mid-close) modal underneath. Only treat it as genuinely
+    // open — and skip rebuilding — when a REAL, visible modal backs it up.
+    // Every other combination (flag stuck true with a stale/hidden modal, or
+    // a fast reopen landing inside the 250ms close window) falls through to
+    // an unconditional remove-then-rebuild below. Without this, a fast
+    // reopen could either silently no-op (stuck flag, stale non-hidden
+    // modal — the previous `else { return; }` branch) or create a second
+    // #doclib-modal/#doclib-grid alongside the first, so
+    // getElementById('doclib-grid') could resolve to the old, about-to-be-
+    // removed grid instead of the new visible one — the fresh fetch would
+    // render into an element nobody sees and the library would look empty
+    // even though the fetch itself returned the right data.
+    const existingModal = document.getElementById('doclib-modal');
+    const existingVisible = existingModal
+      && !existingModal.classList.contains('hidden')
+      && getComputedStyle(existingModal).display !== 'none';
+    if (_libraryOpen && existingVisible) return;
+    existingModal?.remove();
     _libraryOpen = true;
     _libraryImportMode = !!(opts && opts.import);
     _librarySelectMode = false;

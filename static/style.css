@@ -837,7 +837,13 @@ body.bg-pattern-sparkles {
       color: var(--red);
       font-weight: 600;
     }
-    .icon-rail-btn:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    /* Same sticky-hover-on-touch bug as .list-item:hover (guarded further
+       down in this file) — without hover:hover, a tap on the collapsed
+       icon rail (Cookbook, Deep Research, Gallery, etc.) leaves this tint
+       stuck since touchscreens never fire a real mouse-leave. */
+    @media (hover: hover) and (pointer: fine) {
+      .icon-rail-btn:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    }
     .icon-rail-btn.active-section { opacity: 1; background: color-mix(in srgb, var(--color-accent) 15%, transparent); }
     /* Unified "minimized" indicator for any rail/sidebar button whose modal is held open */
     .rail-minimized { position: relative; }
@@ -886,7 +892,6 @@ body.bg-pattern-sparkles {
         right: 13px;
         transform: translateY(calc(-50% - 2px));
       }
-      #tool-memory-btn.rail-minimized::after { right: 17px; }
     }
     @keyframes rail-min-pulse {
       0%,100% { opacity: 1; }
@@ -1474,10 +1479,17 @@ body.bg-pattern-sparkles {
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .row { display:flex; gap:6px; align-items:center; }
-    .list-item:hover,
-    .models-row:hover {
-      background: color-mix(in srgb, var(--red) 8%, transparent);
-      border-color: var(--red);
+    /* pointer:fine + hover:hover guard — without it, touchscreens (no real
+       mouse-leave event) leave this red-tinted hover state stuck on a
+       sidebar row after any tap, masking the .rail-minimized red dot that's
+       supposed to show once a tool is minimized. Desktop mouse hover is
+       unaffected. */
+    @media (hover: hover) and (pointer: fine) {
+      .list-item:hover,
+      .models-row:hover {
+        background: color-mix(in srgb, var(--red) 8%, transparent);
+        border-color: var(--red);
+      }
     }
     #models.models-refreshing {
       opacity: 0.72;
@@ -3065,15 +3077,6 @@ body.bg-pattern-sparkles {
     }
     .mode-toggle-btn + .mode-toggle-btn {
       border-left: none;
-    }
-    @media (max-width: 768px) {
-      .mode-toggle.mode-toggle-three [data-llama-mode="unified"] > span {
-        font-size: 0;
-      }
-      .mode-toggle.mode-toggle-three [data-llama-mode="unified"] > span::after {
-        content: 'Unif';
-        font-size: 11px;
-      }
     }
     /* Message count badge in the chat-meta header (next to the title).
        Auto-hides when empty so a brand-new chat doesn't show "0 msgs". */
@@ -20779,9 +20782,32 @@ body.gallery-selecting .gallery-dl-btn,
 .cookbook-dep-installed-btn:hover { filter: brightness(1.15); }
 .hwfit-serve-row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   gap: 6px;
   margin-bottom: 6px;
+}
+/* .hwfit-backend-llamacpp is a visibility toggle class reused on many
+   unrelated fields (Dtype, GGUF rows, etc.) — it must never carry layout.
+   The Inference CPU/GPU/Unified toggle gets its own class below so Engine,
+   Inference, venv/conda, Port, and GPUs all pack onto Row 1. auto-fit (not
+   auto-fill) collapses unused tracks instead of leaving phantom empty ones,
+   so span-2 below actually gets real width instead of ~110-140px. */
+.hwfit-inference-toggle {
+  grid-column: span 2;
+}
+.hwfit-row1-break {
+  display: none;
+}
+@media (max-width: 768px) {
+  /* Forces venv/conda (and Port, GPUs after it) onto their own grid
+     row instead of squeezing into Row 1's leftover column next to
+     Inference — a full-span 0-height item can't share a row, so the
+     auto-placement algorithm pushes everything after it to a new line. */
+  .hwfit-row1-break {
+    display: block;
+    grid-column: 1 / -1;
+    height: 0;
+  }
 }
 /* Tighter min on the core-knobs row only so Dtype / TP / GPU Mem / Max
    Seqs fit on one line without crushing Row 1's GPU button strip or
@@ -20931,15 +20957,27 @@ body.gallery-selecting .gallery-dl-btn,
   [data-llama-mode-toggle].mode-toggle.mode-toggle-three .mode-toggle-btn > span {
     top: -6px !important;
   }
-  .mode-toggle.mode-toggle-three [data-llama-mode="unified"] > span {
-    font-size: 0;
+  /* Container inherits width:100% from its inline style so the equal-flex
+     buttons stretch to fill the full grid row (see .hwfit-backend-llamacpp
+     grid-column:1/-1 above) — fine for clipping, but way more room than
+     three short labels need on a wide desktop viewport. Pin to a fixed
+     equal-width strip sized for "Unified", the longest label. */
+  [data-llama-mode-toggle].mode-toggle.mode-toggle-three {
+    width: 210px !important;
   }
-  .mode-toggle.mode-toggle-three [data-llama-mode="unified"] > span::after {
-    content: 'Unif';
-    font-size: 11px;
+  [data-llama-mode-toggle].mode-toggle.mode-toggle-three .mode-toggle-btn {
+    flex: 0 0 70px !important;
   }
 }
 @media (max-width: 768px) {
+  /* Same equal-width-strip fix as the PC rule above, sized for the mobile
+     touch-target padding/font (34px height, 12px font, 0 14px padding). */
+  [data-llama-mode-toggle].mode-toggle.mode-toggle-three {
+    width: 240px !important;
+  }
+  [data-llama-mode-toggle].mode-toggle.mode-toggle-three .mode-toggle-btn {
+    flex: 0 0 80px !important;
+  }
   .hwfit-serve-row-core .hwfit-context-label {
     display: flex;
     flex-direction: column;
@@ -20986,6 +21024,17 @@ body.gallery-selecting .gallery-dl-btn,
 .hwfit-serve-row label input {
   display: block;
   margin-top: 2px;
+}
+/* Advanced's Split Mode/Tensor Split/Main GPU, KV Cache/CPU MoE/Fit, and
+   Batch/UBatch/Parallel rows inherit .hwfit-sf[type="text"] { width: 100% }
+   (static/style.css ~L21138), which fills the full 1fr grid track — way
+   wider than a short value like "auto"/"2048" needs on a wide desktop
+   modal. Cap them; the grid cell itself (and label alignment) is unchanged,
+   just the box no longer stretches to fill it. */
+.hwfit-llama-placement-row .hwfit-sf,
+.hwfit-llama-memory-row .hwfit-sf,
+.hwfit-llama-batch-row .hwfit-sf {
+  max-width: 140px;
 }
 /* Ctx slider — ported from origin/main. Sits in the Scan/Download toolbar
    next to the quant dropdown. Drives _ctxValue() in cookbook-hwfit.js. */
@@ -21988,9 +22037,12 @@ body.gallery-selecting .gallery-dl-btn,
 
 /* Mobile cookbook sizing — kept in line with calendar/library modals. */
 @media (max-width: 768px) {
-  .hwfit-serve-row-core .hwfit-context-label {
-    grid-column: 1 / -1;
-  }
+  /* Was grid-column: 1 / -1 (full row) — that made Context start a fresh
+     grid row on its own, pushing Dtype (which comes right before it) onto
+     a separate line by itself too. Drop back to the base rule's span-2 so
+     Dtype and Context sit on the same line, matching the .hwfit-context-
+     control mobile sizing right below (inline-flex, width:auto) which
+     already keeps the input+Auto-button pair compact enough to fit. */
   /* The Speculative control (checkbox + method dropdown + token stepper)
      is too wide for a phone — the stepper ran off the right edge of the
      modal. Let the group wrap onto its own line, take full width, and
@@ -30279,6 +30331,20 @@ button .spinner-whirlpool {
     /* Smooth slide-out matching the slide-in duration. */
     animation: none;
     transition: transform 0.18s ease-in;
+  }
+  /* Theme > Customize's Font/Density/Text size/Frosted row is a 4-column
+     flex row with no wrap (.theme-fd-row) — each .theme-fd-group is flex:1
+     but a <select>'s default min-width:auto keeps it from shrinking below
+     its option text's intrinsic width, so 4 columns force the whole row
+     (and with it the panel's scroll body) wider than a phone viewport,
+     requiring landscape rotation or horizontal scroll to see the rest.
+     Wrap to 2 columns per line on mobile instead. */
+  .theme-fd-row {
+    flex-wrap: wrap;
+  }
+  .theme-fd-row .theme-fd-group {
+    flex: 1 1 45%;
+    min-width: 45%;
   }
 }
 
