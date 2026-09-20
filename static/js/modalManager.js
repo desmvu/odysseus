@@ -228,6 +228,9 @@ let _dockOrder = [];
 // Per-chip free-floating position (mobile only). When set, the chip renders
 // at this absolute viewport position instead of inside the dock flex layout.
 const _chipPositions = new Map(); // modalId -> { left, top }
+// Which page of chips is showing when there are more chips than fit in one
+// row (desktop only — see PAGE_SIZE in _renderDock).
+let _dockPage = 0;
 // User-dragged position of the dock pad itself (both desktop and mobile).
 // Remembered across minimize→restore→minimize cycles so the dock reappears
 // where the user last parked it instead of snapping back to bottom-center.
@@ -279,7 +282,10 @@ function _loadDockState() {
     if (!dp && state.dockLeft && state.dockTop) {
       dp = { left: parseFloat(state.dockLeft), top: parseFloat(state.dockTop) };
     }
-    if (dp && Number.isFinite(dp.left) && Number.isFinite(dp.top)) {
+    // Desktop dock chips always belong centered over the composer. Ignore an
+    // old desktop drag position so adding a second chip can never leave the
+    // group off-center. Mobile keeps its deliberate free-positioning gesture.
+    if (window.innerWidth <= 768 && dp && Number.isFinite(dp.left) && Number.isFinite(dp.top)) {
       // Clamp into the current viewport so a saved spot from a larger
       // window doesn't strand the dock off-screen. dp.left/top are pre-zoom
       // (same space style.left/top read back), so clamp against the pre-zoom
@@ -298,16 +304,14 @@ function _loadDockState() {
 // render because the empty-dock branch wipes inline styles via cssText='',
 // which would otherwise drop the position the moment the dock clears.
 function _applyDockPos(dock) {
-  // The composer is centered inside the usable workspace, not necessarily the
-  // viewport: an open sidebar or edge-docked tool changes that workspace in
-  // welcome AND active-chat layouts. Unless the user deliberately dragged the
-  // dock elsewhere, keep its chips centered over the composer.
+  // Desktop chips track the live chat workspace. A right/left dock changes
+  // this center, so use the composer geometry rather than the viewport.
   const chatContainer = document.getElementById('chat-container');
   const composer = chatContainer?.querySelector('.chat-input-bar');
   const rect = composer?.getBoundingClientRect();
-  if (!_dockPos && rect && rect.width > 0) {
-    const zr = _zoomRatio();
-    dock.style.left = `${(rect.left + rect.width / 2) / zr}px`;
+  if (window.innerWidth > 768 && rect && rect.width > 0) {
+    const zoomRatio = _zoomRatio();
+    dock.style.left = `${(rect.left + rect.width / 2) / zoomRatio}px`;
     dock.style.top = '';
     dock.style.right = 'auto';
     dock.style.bottom = '';
@@ -400,6 +404,18 @@ function _renderDock() {
   // in allIds (minimized or persistent).
   const renderIds = _dockOrder.filter(id => allIds.includes(id));
 
+  // Desktop caps the dock to one row of PAGE_SIZE chips with prev/next
+  // paging instead of wrapping to a second row (which let an overflowing
+  // group visually push earlier chips out of the composer-centered strip).
+  const PAGE_SIZE = 3;
+  const paginated = !isMobile && renderIds.length > PAGE_SIZE;
+  const maxPage = paginated ? Math.ceil(renderIds.length / PAGE_SIZE) - 1 : 0;
+  if (_dockPage > maxPage) _dockPage = maxPage;
+  if (_dockPage < 0) _dockPage = 0;
+  const pageIds = paginated
+    ? renderIds.slice(_dockPage * PAGE_SIZE, _dockPage * PAGE_SIZE + PAGE_SIZE)
+    : renderIds;
+
   // If a brand-new chip is joining and the existing chips are already
   // free-positioned at body level (e.g. previously chain-dropped), the
   // new chip would land in the dock by itself — visually unlinking the
@@ -431,7 +447,17 @@ function _renderDock() {
   // first time it re-populates after every chip was restored.
   _applyDockPos(dock);
   dock.innerHTML = '';
-  for (const id of renderIds) {
+  if (paginated) {
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.className = 'dock-page-btn dock-page-prev';
+    prevBtn.title = 'Previous';
+    prevBtn.disabled = _dockPage === 0;
+    prevBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>';
+    prevBtn.addEventListener('click', (e) => { e.stopPropagation(); _dockPage--; _renderDock(); });
+    dock.appendChild(prevBtn);
+  }
+  for (const id of pageIds) {
     const meta = _LABELS[id] || { label: id, icon: '' };
     const chip = document.createElement('button');
     chip.type = 'button';
@@ -492,6 +518,16 @@ function _renderDock() {
     } else {
       dock.appendChild(chip);
     }
+  }
+  if (paginated) {
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'dock-page-btn dock-page-next';
+    nextBtn.title = 'Next';
+    nextBtn.disabled = _dockPage >= maxPage;
+    nextBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+    nextBtn.addEventListener('click', (e) => { e.stopPropagation(); _dockPage++; _renderDock(); });
+    dock.appendChild(nextBtn);
   }
 
   // FLIP: animate from old → new positions
@@ -823,17 +859,10 @@ function _wireChipDrag(chip, dock) {
       return;
     }
 
-    // Desktop — reorder vs move-dock
-    const chips = [...dock.querySelectorAll('.minimized-dock-chip')];
-    const idx = chips.indexOf(chip);
-    const isEdge = idx === 0 || idx === chips.length - 1;
-    dragMode = (isEdge && chips.length >= 2) ? 'move-dock' : (chips.length >= 2 ? 'reorder' : 'move-dock');
-    if (chips.length === 1) dragMode = 'move-dock';
-    if (dragMode === 'move-dock') {
-      const dr = dock.getBoundingClientRect();
-      dockStartLeft = dr.left;
-      dockStartTop = dr.top;
-    }
+    // Desktop dock chips are always centered over the composer. Dragging can
+    // reorder a group, but never moves the whole dock into a position where a
+    // later minimized tool could appear offset or overlap it.
+    dragMode = 'reorder';
     chip.setPointerCapture(e.pointerId);
     chip.addEventListener('pointermove', onPointerMove);
     chip.addEventListener('pointerup', onPointerUp, { once: true });
@@ -1331,6 +1360,17 @@ export function refreshDockPosition() {
   if (dock) _applyDockPos(dock);
 }
 
+function _settleDockPosition() {
+  // Edge docking releases the chat margin after the chip has rendered. A
+  // ResizeObserver may be attached to a composer that a feature later
+  // replaces, so settle explicitly after both layout frames and transitions.
+  requestAnimationFrame(() => {
+    refreshDockPosition();
+    requestAnimationFrame(refreshDockPosition);
+    setTimeout(refreshDockPosition, 250);
+  });
+}
+
 export function minimize(id) {
   // Lazy-register if a known modal isn't yet registered (e.g. user clicked `_`
   // on a tool that doesn't pre-register itself).
@@ -1363,8 +1403,24 @@ export function minimize(id) {
   }
   s.isMinimized = true;
   _setBadge(s.btnIds, true);
+  // Several tools (gallery.js, research/panel.js, ...) add `.active` to their
+  // own sidebar/rail button on open and only remove it on a full close —
+  // never on minimize. Left on, `.list-item.active`'s CSS makes the row look
+  // permanently hovered even after the tool is minimized to the dock. Any
+  // minimize should drop it the same way a close does.
+  for (const btnId of s.btnIds) {
+    document.getElementById(btnId)?.classList.remove('active');
+  }
+  // Some tools (e.g. calendar.js) collapse the sidebar to a rail on open
+  // via the shared route-collapse marker (document.body.dataset.
+  // routeCollapsedSidebar) but only restore it on a full close, not a
+  // minimize — leaving the whole chat column permanently recentered on the
+  // narrower rail width once minimized. Any minimize should release that
+  // marker the same way a close does.
+  try { window._restoreSidebarIfRouteCollapsed?.(); } catch (e) {}
   _ensureDock();
   _renderDock();
+  _settleDockPosition();
   return true;
 }
 
@@ -1464,8 +1520,13 @@ export function injectMinimizeButton(modal, modalId) {
   const header = modal.querySelector('.modal-header');
   if (!header) return;
   if (header.querySelector('.modal-minimize-btn, .minimize-btn, [data-minimize]')) {
-    // An existing minimize button is present — wire it to the manager instead
-    const existing = header.querySelector('.minimize-btn, [data-minimize]');
+    // An existing minimize button is present — wire it to the manager instead.
+    // Must match the same selector as the outer check above: a button with
+    // ONLY .modal-minimize-btn (e.g. research/panel.js's #research-panel-minimize)
+    // previously fell through this rewire because only .minimize-btn/[data-minimize]
+    // were matched here, leaving it on its own display:none-only minimize with
+    // no dock chip at all.
+    const existing = header.querySelector('.modal-minimize-btn, .minimize-btn, [data-minimize]');
     if (existing && !existing.dataset._modalsBound) {
       existing.dataset._modalsBound = '1';
       existing.addEventListener('click', (e) => {
@@ -1568,13 +1629,28 @@ function _scanAndWire() {
     injectMinimizeButton(modal, id);
   }
 }
-const _scanTimer = setInterval(_scanAndWire, 1000);
-// First scan after DOM ready
-if (document.readyState !== 'loading') {
-  setTimeout(_scanAndWire, 100);
-} else {
-  document.addEventListener('DOMContentLoaded', () => setTimeout(_scanAndWire, 100));
+function _wireAddedModals(node) {
+  if (node.nodeType !== Node.ELEMENT_NODE) return;
+  if (_AUTO_WIRE[node.id]) injectMinimizeButton(node, node.id);
+  node.querySelectorAll?.('.modal[id]').forEach(modal => {
+    if (_AUTO_WIRE[modal.id]) injectMinimizeButton(modal, modal.id);
+  });
 }
+
+function _startModalWiring() {
+  _scanAndWire();
+  new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      mutation.addedNodes.forEach(_wireAddedModals);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
+// Wire newly-created tool modals in the same mutation turn. The old polling
+// left a window where app.js's legacy dock could claim their `_` button,
+// splitting chips between two taskbars and dropping chips on re-render.
+if (document.readyState !== 'loading') _startModalWiring();
+else document.addEventListener('DOMContentLoaded', _startModalWiring);
 
 // Tools that survive a swipe-down as a dock chip. Anything else falls
 // through to the legacy close handler and goes away entirely.

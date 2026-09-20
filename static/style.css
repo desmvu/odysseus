@@ -865,7 +865,13 @@ body.bg-pattern-sparkles {
     #tool-library-btn.rail-minimized::after,
     #tool-gallery-btn.rail-minimized::after,
     #tool-compare-btn.rail-minimized::after,
-    #tool-calendar-btn.rail-minimized::after { right: 12px; }
+    #tool-calendar-btn.rail-minimized::after,
+    #tool-cookbook-btn.rail-minimized::after,
+    #tool-research-btn.rail-minimized::after { right: 12px; }
+    /* Library's row-hover "+ document" button sits at the row's right edge,
+       same spot as the minimized dot — shift it left of the dot while the
+       dot is showing; it returns to its normal spot once un-minimized. */
+    #tool-library-btn.rail-minimized #library-new-doc-btn { margin-right: 14px; }
     /* Cookbook already shows its own running/served-status dot
        (#cookbook-notif-dot, toggled with .cookbook-notif-active on the
        button). Don't stack the tabbed-down pulse on top of it — the two
@@ -930,12 +936,31 @@ body.bg-pattern-sparkles {
     /* Bottom dock — chip per minimized modal */
     #minimized-dock {
       position: fixed; bottom: var(--composer-clearance, 12px); left: 50%; transform: translateX(-50%);
-      display: flex; gap: 6px; flex-wrap: wrap;
+      display: flex; gap: 6px; flex-wrap: nowrap;
       max-width: calc(100vw - 24px);
       padding: 4px;
       z-index: 100;
       pointer-events: none;
     }
+    #minimized-dock { align-items: center; }
+    .dock-page-btn {
+      pointer-events: auto;
+      align-self: center;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; flex-shrink: 0;
+      background: var(--panel, var(--bg));
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--fg);
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+    }
+    .dock-page-btn svg { width: 16px; height: 16px; }
+    .dock-page-btn:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--accent, var(--red)) 12%, var(--panel, var(--bg)));
+      border-color: color-mix(in srgb, var(--accent, var(--red)) 40%, var(--border));
+    }
+    .dock-page-btn:disabled { opacity: 0.35; cursor: default; }
     .minimized-dock-chip {
       pointer-events: auto;
       display: inline-flex; align-items: center; gap: 6px;
@@ -1969,8 +1994,11 @@ body.bg-pattern-sparkles {
     #welcome-screen {
       position:absolute;
       /* Center in the actual free region above the composer, rather than the
-         full viewport.  The composer moves upward on the welcome screen. */
-      top:calc((100% - var(--composer-clearance, 30vh)) / 2);
+         full viewport.  The composer moves upward on the welcome screen.
+         +24px nudges the whole block (logo/composer/taskbar) down slightly —
+         pure midpoint math reads a hair high since the composer's own
+         clearance is excluded from the region being centered. */
+      top:calc((100% - var(--composer-clearance, 30vh)) / 2 + 24px);
       left:50%;
       transform:translate(-50%,-50%);
       display:flex;

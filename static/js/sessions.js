@@ -1849,7 +1849,7 @@ export async function loadSessions() {
   }
 }
 
-export async function selectSession(id, { keepSidebar = false, showLoading = true, immediateLoading = false } = {}) {
+export async function selectSession(id, { keepSidebar = false, showLoading = true, immediateLoading = false, documentId = null } = {}) {
   // Exit compare mode cleanly if active
   if (window.compareModule && window.compareModule.isActive()) {
     window.compareModule.deactivate(true);
@@ -2139,9 +2139,15 @@ export async function selectSession(id, { keepSidebar = false, showLoading = tru
       }
       const docInd = document.getElementById('doc-indicator-btn');
       if (docInd) docInd.classList.toggle('visible', hasDocs);
-      if (hasDocs) {
-        // Wait for session UI to settle, then slide in documents
-        setTimeout(() => window.documentModule.loadSessionDocs(id, { restoreMode: true }), 300);
+      if (hasDocs || documentId) {
+        // Library-open requests take precedence over the normal session-switch
+        // restore policy, which intentionally minimizes existing documents.
+        // Running both caused the requested document to flash open, then get
+        // immediately minimized by this delayed restore.
+        setTimeout(() => {
+          if (documentId) window.documentModule.loadDocument(documentId);
+          else window.documentModule.loadSessionDocs(id, { restoreMode: true });
+        }, 300);
       } else if (!shouldOpen) {
         window.documentModule.closePanel();
       }
@@ -3450,8 +3456,7 @@ async function _renderLibDocuments(grid) {
         // Open document in its session
         if (d.session_id && window.documentModule) {
           closeLibrary();
-          selectSession(d.session_id);
-          setTimeout(() => { if (window.documentModule.loadSessionDocs) window.documentModule.loadSessionDocs(d.session_id); }, 300);
+          selectSession(d.session_id, { documentId: d.id });
         }
       });
       card.querySelector('.archive-menu-btn').addEventListener('click', (e) => {

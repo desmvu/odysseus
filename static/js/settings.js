@@ -3,6 +3,7 @@
 
 import uiModule from './ui.js';
 import searchModule from './search.js';
+import * as Modals from './modalManager.js';
 import { byId } from './settings/dom.js';
 import {
   getSettingsRegistryIssues,
@@ -5631,6 +5632,14 @@ function syncAdminVisibility() {
    ═══════════════════════════════════════════ */
 export function open(tab) {
   if (!initialized) initAll();
+
+  // If Settings is currently minimized to a dock chip, the sidebar gear
+  // must un-minimize it the same way clicking the chip does — not just
+  // strip `.hidden`, which leaves modalManager's isMinimized state, the
+  // `.modal-minimized` class, and the dock chip all stale.
+  if (Modals.isMinimized('settings-modal')) {
+    Modals.restore('settings-modal');
+  }
 
   syncAppearanceCheckboxes();
   showSettingsModal(modalEl);

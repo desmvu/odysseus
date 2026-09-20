@@ -46,6 +46,12 @@ function _hasOtherDockedWindow(side, owner) {
   const cls = _dockClassForSide(side);
   return Array.from(document.querySelectorAll(`.${cls}`)).some((el) => {
     if (!el || el === owner) return false;
+    // A modal that was docked, then closed through a path that never called
+    // suspendDock/clearRightDock, can be left carrying the dock class while
+    // hidden or removed. Left unfiltered, that phantom entry makes every
+    // later dock release for every OTHER window bail forever (composer
+    // stays pushed off-center even with nothing actually docked).
+    if (!el.isConnected || el.classList.contains('hidden') || el.style.display === 'none') return false;
     if (owner && el.contains && el.contains(owner)) return false;
     if (owner && owner.contains && owner.contains(el)) return false;
     return true;

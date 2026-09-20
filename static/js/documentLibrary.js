@@ -1062,7 +1062,11 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
     }
     const currentSessionId = sessionModule && sessionModule.getCurrentSessionId();
     if (doc.session_id !== currentSessionId) {
-      await sessionModule.selectSession(doc.session_id);
+      // selectSession normally restores this session's document as a minimized
+      // chip. This is an explicit Library-open request, so pass the document
+      // through and let selectSession open that exact document instead.
+      await sessionModule.selectSession(doc.session_id, { documentId: doc.id });
+      return;
     }
     _loadDocument(doc.id);
   }
@@ -1075,9 +1079,11 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
     // Step 1: switch session if needed and wait for it to load
     const currentSessionId = sessionModule && sessionModule.getCurrentSessionId();
     if (doc.session_id !== currentSessionId) {
-      await sessionModule.selectSession(doc.session_id);
-      // Give the session UI a moment to settle
-      await new Promise(r => setTimeout(r, 150));
+      // This is the normal card/Open action. Pass the document through the
+      // switch so selectSession does not schedule its default minimized-doc
+      // restore after this function has opened the editor.
+      await sessionModule.selectSession(doc.session_id, { documentId: doc.id });
+      return;
     }
 
     // Step 2: ensure doc is in tabs

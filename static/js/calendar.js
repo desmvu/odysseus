@@ -651,6 +651,13 @@ function _collapseSidebar() {
     // overlay that the user intentionally swipes/taps away when the tool
     // opens — popping it back on close is unwanted.
     if (window.innerWidth >= 700) _sidebarWasOpen = true;
+    // Mark it the same way collapseSidebarToRail() (modalSnap.js) does —
+    // modalManager's minimize() checks this marker and restores the sidebar
+    // for ANY minimized tool. Without it, minimizing Calendar (rather than
+    // fully closing it) left the sidebar collapsed and the chat column
+    // recentered on the narrower icon-rail width permanently, since only
+    // _doCloseCalendar() called _restoreSidebar(), never a minimize.
+    document.body.dataset.routeCollapsedSidebar = '1';
     sb.classList.add('hidden');
     if (window.syncRailSide) window.syncRailSide();
   }

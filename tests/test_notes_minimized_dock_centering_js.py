@@ -11,6 +11,7 @@ from pathlib import Path
 
 NOTES_JS = Path("static/js/notes.js").read_text(encoding="utf-8")
 MODALS_JS = Path("static/js/modalManager.js").read_text(encoding="utf-8")
+SNAP_JS = Path("static/js/modalSnap.js").read_text(encoding="utf-8")
 
 
 def _close_panel_body() -> str:
@@ -32,5 +33,19 @@ def test_default_minimized_dock_tracks_active_chat_composer():
     end = MODALS_JS.index("// True when `chipRect`", start)
     body = MODALS_JS[start:end]
     assert "const composer = chatContainer?.querySelector('.chat-input-bar');" in body
-    assert "if (!_dockPos && rect && rect.width > 0)" in body
+    assert "if (window.innerWidth > 768 && rect && rect.width > 0)" in body
     assert "welcome-active" not in body
+
+
+def test_hidden_docked_window_does_not_block_dock_release():
+    # A modal that was docked, then closed through a path that never called
+    # suspendDock/clearRightDock, can be left carrying the dock class while
+    # hidden or disconnected. _hasOtherDockedWindow must ignore it, or every
+    # future dock release (e.g. minimizing Notes) bails forever and the
+    # composer stays pushed off-center.
+    start = SNAP_JS.index("function _hasOtherDockedWindow(side, owner)")
+    end = SNAP_JS.index("function _hasAnyOtherDockedWindow", start)
+    body = SNAP_JS[start:end]
+    assert "el.isConnected" in body
+    assert "el.classList.contains('hidden')" in body
+    assert "el.style.display === 'none'" in body

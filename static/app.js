@@ -34,8 +34,10 @@ import calendarModule from './js/calendar.js';
 import notesModule from './js/notes.js';
 import adminModule from './js/admin.js?v=20260716openrouter3';
 import settingsModule from './js/settings.js?v=20260815approvalsave1';
-// Eagerly bind unified minimize/restore behavior across all tool modals.
-import './js/modalManager.js?v=20260723compareicon2';
+// IMPORTANT: use the plain specifier every other importer uses. A ?v= query
+// makes a second modalManager module instance with separate dock state and
+// duplicate auto-wiring, so minimize/suspend calls can act on different state.
+import './js/modalManager.js';
 // Desktop window tiling — drag a modal near an edge/corner to snap.
 import './js/tileManager.js';
 import themeModule from './js/theme.js';
@@ -847,8 +849,11 @@ function initializeEventListeners() {
     if (chatModule && chatModule.showWelcomeScreen) {
       chatModule.showWelcomeScreen();
     }
-    // Close document panel if open
-    if (documentModule && documentModule.closePanel) documentModule.closePanel();
+    // Close document panel if open. isPanelOpen() guards a MINIMIZED doc
+    // chip: closePanel() with no direction treats any call as a real close
+    // and unregisters the dock chip, which silently killed the Document
+    // taskbar chip whenever a fresh chat was started (e.g. opening Compare).
+    if (documentModule && documentModule.isPanelOpen && documentModule.isPanelOpen() && documentModule.closePanel) documentModule.closePanel();
     if (researchPanelModule && researchPanelModule.isOpen()) researchPanelModule.closePanel();
     // Reset research overflow dot (but don't touch research state — caller manages that)
     const _overflowRes = el('overflow-research-btn');
