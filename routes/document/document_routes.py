@@ -319,6 +319,104 @@ def setup_document_routes(session_manager, upload_handler=None) -> APIRouter:
         finally:
             db.close()
 
+    # ---- POST /api/documents/import-eml ----
+    @router.post("/api/documents/import-eml")
+    async def import_eml(
+        request: Request,
+        file: UploadFile = File(...),
+        session_id: Optional[str] = Form(None),
+    ) -> Dict[str, Any]:
+        """Upload a raw .eml (message/rfc822) file and create a markdown Document.
+
+        Mirrors the parsing used by the email attachment ``.eml`` path
+        (routes/email_routes.py attachment_as_doc) so a raw .eml dropped into
+        the Library renders the same subject/from/to/body/attachments summary
+        instead of raw MIME source.
+        """
+        import email as _email_mod
+        from routes.email_helpers import _decode_header, _extract_text, _list_attachments_from_msg
+
+        from src.auth_helpers import require_privilege
+        user = require_privilege(request, "can_use_documents")
+
+        if session_id:
+            db = SessionLocal()
+            try:
+                _get_session_or_404(db, session_id, user)
+            finally:
+                db.close()
+
+        raw_bytes = await file.read()
+        title = (file.filename or "Imported email").rsplit(".", 1)[0] or "Imported email"
+
+        if not raw_bytes:
+            content = f"# {title}\n\n_(empty email file)_"
+        else:
+            try:
+                msg = _email_mod.message_from_bytes(raw_bytes)
+            except Exception:
+                raise HTTPException(400, "Failed to parse .eml file")
+
+            subject = _decode_header(msg.get("Subject", "")) or title
+            from_addr = _decode_header(msg.get("From", ""))
+            to_addr = _decode_header(msg.get("To", ""))
+            cc_addr = _decode_header(msg.get("Cc", ""))
+            date = msg.get("Date", "")
+            body = _extract_text(msg).strip()
+            atts = _list_attachments_from_msg(msg)
+
+            lines = [f"# {subject}", ""]
+            if from_addr:
+                lines.append(f"**From:** {from_addr}")
+            if to_addr:
+                lines.append(f"**To:** {to_addr}")
+            if cc_addr:
+                lines.append(f"**Cc:** {cc_addr}")
+            if date:
+                lines.append(f"**Date:** {date}")
+            lines.extend(["", "## Body", "", body or "_(no readable body)_"])
+            if atts:
+                lines.extend(["", "## Attachments", ""])
+                for att in atts:
+                    size = int(att.get("size") or 0)
+                    size_label = f"{size} B" if size < 1024 else f"{round(size / 1024)} KB"
+                    name = att.get("filename") or f"attachment_{att.get('index', '')}"
+                    ctype = att.get("content_type") or "application/octet-stream"
+                    lines.append(f"- {name} ({ctype}, {size_label})")
+            content = "\n".join(lines).strip()
+            title = subject or title
+
+        db = SessionLocal()
+        try:
+            doc_id = str(uuid.uuid4())
+            ver_id = str(uuid.uuid4())
+            doc = Document(
+                id=doc_id, session_id=session_id, title=title,
+                language="markdown", current_content=content,
+                version_count=1, is_active=True, owner=user,
+            )
+            db.add(doc)
+            db.add(DocumentVersion(
+                id=ver_id, document_id=doc_id, version_number=1,
+                content=content, summary="Imported from .eml", source="upload",
+            ))
+            db.commit()
+            db.refresh(doc)
+            try:
+                from src.event_bus import fire_event
+                fire_event("document_created", doc.owner)
+            except Exception:
+                logger.debug("document_created event dispatch failed", exc_info=True)
+            return _doc_to_dict(doc)
+        except HTTPException:
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to import .eml: {e}")
+            raise HTTPException(500, f"Failed to import .eml: {e}")
+        finally:
+            db.close()
+
     # ---- GET /api/documents/library ----
     @router.get("/api/documents/library")
     async def documents_library(

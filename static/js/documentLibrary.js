@@ -1572,6 +1572,27 @@ let _libraryArchivedView = false;   // Documents tab showing archived docs?
 
         const isSpreadsheet = ['.xlsx', '.xls', '.ods'].includes(ext);
         const isPdf = ext === '.pdf';
+        const isEml = ext === '.eml';
+
+        if (isEml) {
+          // Backend parses the raw MIME source (subject/from/to/body/
+          // attachments) the same way the email-attachment "open as
+          // document" flow does — reading it client-side as plain text
+          // would dump raw MIME headers/boundaries into the document.
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await fetch(`${API_BASE}/api/documents/import-eml`, {
+            method: 'POST',
+            body: fd,
+          });
+          if (!res.ok) {
+            let _e = `HTTP ${res.status}`;
+            try { const _j = await res.json(); _e = _j.detail || _j.error || _e; } catch {}
+            throw new Error('Email import failed: ' + _e);
+          }
+          imported++;
+          continue;
+        }
 
         if (isPdf) {
           // Backend handles save + AcroForm detection in one shot — picks the
