@@ -4160,6 +4160,16 @@ async def stream_agent_loop(
         if _is_mcp_document_transfer_request(_retrieval_query or _last_user)
         else set()
     )
+    # An explicitly-named MCP server, a resource follow-up, or a
+    # skill-triggered MCP toolset each replace _relevant_tools wholesale
+    # below (narrower intent than generic tool-RAG). Without this, a turn
+    # that both names a connected server AND needs a quick live fact ("check
+    # Gold MCP, and also look up today's headline") silently loses
+    # web_search/web_fetch even though the domain classifier already
+    # detected web intent for the same message — carried forward the same
+    # way _mcp_document_transfer_tools already is.
+    _web_domain_tools = WEB_TOOL_NAMES if "web" in (_intent.get("domains") or set()) else set()
+
     if not guide_only and _relevant_tools is not None and mcp_mgr:
         # Retrieval may omit a dynamic MCP tool after the first round. A user
         # explicitly naming a connected server is stronger evidence than RAG,
@@ -4179,6 +4189,7 @@ async def stream_agent_loop(
                     | forced_set
                     | _explicit_mcp_tools
                     | _mcp_document_transfer_tools
+                    | _web_domain_tools
                 )
                 logger.info(
                     "[tool-rag] Explicit MCP server reference selected %d tools",
@@ -4209,6 +4220,7 @@ async def stream_agent_loop(
                             | forced_set
                             | _mcp_followup_tools
                             | _mcp_document_transfer_tools
+                            | _web_domain_tools
                         )
                         logger.info(
                             "[tool-rag] MCP follow-up selected %d tools from %s",
@@ -4291,6 +4303,7 @@ async def stream_agent_loop(
                                         | _skill_mcp_tools
                                         | _sk_local_toolsets
                                         | _mcp_document_transfer_tools
+                                        | _web_domain_tools
                                     )
         except Exception as _e:
             logger.debug(f"[tool-rag] skill-aware tool include skipped: {_e}")

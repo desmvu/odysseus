@@ -360,3 +360,26 @@ bugs:
       broke 9 existing tests, caught by the full Preflight suite before
       commit); changed the tool_index parser to check indent on the raw
       unstripped line.
+  - bug_id: BUG-2026-09-23T000000
+    date: "2026-09-23"
+    severity: medium
+    priority: medium
+    scope: agent-loop
+    summary: >-
+      Found while auditing tool-selection efficiency for small
+      native-function-calling models (Qwen3-14B). Three points in
+      src/agent_loop.py replace _relevant_tools wholesale (not union)
+      whenever an MCP selection is narrower than generic tool-RAG (explicit
+      server, resource follow-up, skill-triggered MCP toolset) -- none
+      carried forward web_search/web_fetch even when the domain classifier
+      had already detected "web" intent for the same message.
+    file: specs/bugs/BUG-2026-09-23T000000-mcp-override-drops-web-search.md
+    status: resolved
+    files_changed:
+      - src/agent_loop.py
+    approach: >-
+      Added a single _web_domain_tools gate computed once from the domain
+      classifier's "web" signal, unioned into all three MCP-override
+      replacement sites -- mirroring the existing
+      _mcp_document_transfer_tools carve-out already used at the same three
+      sites.
