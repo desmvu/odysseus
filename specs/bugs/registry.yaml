@@ -278,3 +278,85 @@ bugs:
       generate --output=/etc/cdi/nvidia.yaml).
     file: specs/bugs/BUG-2026-09-20T000000-stale-cdi-spec-cpu-fallback.md
     status: resolved
+  - bug_id: BUG-2026-09-22T190432
+    date: "2026-09-22"
+    severity: high
+    priority: high
+    scope: frontend
+    summary: >-
+      Email window covered the Document/PDF pane after docking, resizing, or
+      tile-snapping beside it. Five compounding root causes across three
+      files: a zoom-space comparison bug + wide-screen bypass in the room
+      check, a stale-width carryover on dock conversion, a right-dock clamp
+      unaware of an open doc pane, an independent window-tiling system that
+      repositioned Email without updating the doc-split geometry, and the
+      final root cause -- _applyEmailDocSplitGeometry() storing CSS custom
+      properties in post-zoom space when a pure stylesheet rule (no JS-side
+      division point) consumes them directly, double-scaling under the
+      "Bigger" text-size CSS zoom setting. Three secondary unconditional-
+      caching bugs (two in-memory, one localStorage) also let a chat-mode
+      width leak into the doc-split code path.
+    file: specs/bugs/BUG-2026-09-22T190432-email-pdf-dock-overlap.md
+    status: resolved_pending_live_confirmation
+    files_changed:
+      - static/js/emailLibrary.js
+      - static/js/modalSnap.js
+      - static/js/tileManager.js
+    approach: >-
+      Zoom-space fixes in the room check and in _applyEmailDocSplitGeometry
+      (the core fix -- CSS vars now stored pre-zoom to match the convention
+      already followed by emailLibrary.js's sibling functions); doc-aware
+      width clamps for both left and right docking; tileManager.js defers to
+      the dedicated dock system while a doc pane is open; three caching sites
+      gated on whether the email+doc split was actually active.
+
+  - bug_id: BUG-2026-09-22T190433
+    date: "2026-09-22"
+    severity: high
+    priority: medium
+    scope: documents-uploads
+    summary: >-
+      A PDF opened from an email attachment as a Document permanently
+      reported "Source PDF not found" on every later read, even though the
+      file existed on disk -- the attachment-as-doc flow wrote bytes via
+      shutil.copyfile() but never indexed the file in uploads.json, and every
+      downstream read resolves uploads by index lookup only, never a
+      filesystem scan.
+    file: specs/bugs/BUG-2026-09-22T190433-attachment-pdf-source-not-found.md
+    status: resolved
+    files_changed:
+      - src/upload_handler.py
+      - routes/email_routes.py
+    approach: >-
+      Added UploadHandler.register_existing_upload() to index a
+      server-written file after the fact, called immediately after the
+      attachment PDF copy in routes/email_routes.py.
+
+  - bug_id: BUG-2026-09-22T190434
+    date: "2026-09-22"
+    severity: medium
+    priority: medium
+    scope: agent-tools
+    summary: >-
+      Three independent MCP tool-retrieval gaps: financial statements matched
+      no domain bucket and silently reused the previous turn's unrelated
+      tool selection; small MCP catalogs (e.g. 9 tools) went through the same
+      lexical ranking/max_tools cap designed for 100+-tool servers, dropping
+      the correct tool for short queries; ToolIndex's prompt parser matched
+      on the stripped line, losing the indent signal that distinguishes a
+      real top-level tool from a nested description bullet, producing
+      duplicate ChromaDB IDs that broke the whole upsert batch.
+    file: specs/bugs/BUG-2026-09-22T190434-mcp-tool-retrieval-gaps.md
+    status: resolved
+    files_changed:
+      - src/agent_loop.py
+      - src/mcp_manager.py
+      - src/tool_index.py
+    approach: >-
+      Added a finance domain regex bucket; added a small_catalog_tools
+      short-circuit for servers with <=12 enabled tools, placed as a
+      last-resort fallback after the more specific explicitly_named/
+      nextcloud/soulseek workflow buckets (an earlier top-priority placement
+      broke 9 existing tests, caught by the full Preflight suite before
+      commit); changed the tool_index parser to check indent on the raw
+      unstripped line.
