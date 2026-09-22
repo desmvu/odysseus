@@ -141,6 +141,24 @@ function _zoneForContent(content, x, y) {
   if (modal && (modal.id === 'cookbook-modal'
       || modal.id === 'theme-modal')
       && zone.name !== 'fullscreen') return null;
+  // While a doc/PDF pane is open beside the email window, defer entirely to
+  // modalSnap.js's dedicated email-doc-split edge-dock (windowDrag.js's
+  // leftDock/rightDock) instead of this generic tile system. _applySnap()
+  // below only clears modalSnap's own dock bookkeeping
+  // (modal-left-docked/-right-docked, --left-dock-w/--right-dock-w) — it
+  // never updates --email-doc-split-left-x/-email-w/-right-x, which is what
+  // the PDF pane's CSS position (style.css `body.email-doc-split-active.doc-
+  // view .doc-editor-pane`) actually reads. A tile-snap here jumps the email
+  // window to a fresh width/position while the PDF pane is left rendering at
+  // its old, now-stale boundary — the two panes visibly overlap (observed:
+  // email window snaps to a "left-half" tile zone, PDF pane doesn't move to
+  // match, email ends up covering part of it).
+  const isEmailModal = modal && (
+    modal.id === 'email-lib-modal'
+    || (modal.id || '').startsWith('email-reader-')
+    || modal.classList?.contains('email-window-modal')
+  );
+  if (isEmailModal && document.body.classList.contains('doc-view')) return null;
   return zone;
 }
 

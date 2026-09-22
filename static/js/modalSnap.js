@@ -20,6 +20,14 @@
 const SNAP_PX = 60;
 const UNSNAP_PX = 80;
 const MIN_CHAT_WIDTH = 380;
+// When a document/PDF pane (.doc-editor-pane, body.doc-view) is open, right-
+// docking a modal (e.g. dragging the email window to the right edge) must
+// also protect the doc pane's own minimum width, not just the chat area's.
+// The doc pane is a plain flex sibling that shrinks with margin-right as
+// --right-dock-w grows, so with no floor here a wide dock (sized only against
+// MIN_CHAT_WIDTH) could claim nearly all the remaining space and crush the
+// doc/PDF pane down to a sliver instead of sharing the row.
+const MIN_DOC_PANE_WIDTH = 460;
 const EMAIL_DOC_SPLIT_WIDTH_KEY = 'odysseus-email-doc-split-width';
 const EDGE_DOCK_WIDTH_KEY_PREFIX = 'odysseus-edge-dock-width';
 const MIN_EDGE_DOCK_WIDTH = 320;
@@ -125,7 +133,22 @@ function _clampRightDockWidth(width) {
   const navRight = _leftNavRight();
   const leftDockW = _activeDockWidth('left');
   const maxByChat = window.innerWidth - navRight - leftDockW - MIN_CHAT_WIDTH;
-  const max = Math.min(Math.round(window.innerWidth * 0.82), maxByChat);
+  let max = Math.min(Math.round(window.innerWidth * 0.82), maxByChat);
+  // When a document/PDF pane is open it's a flex sibling of .chat-container,
+  // not positioned relative to the nav edge — margin-right (how the dock
+  // reserves space) shrinks it from its OWN left edge, which sits wherever
+  // the chat/doc split currently divides the row. Without this, maxByChat's
+  // nav-relative math thinks there's plenty of room and lets the dock crush
+  // the doc pane down to a sliver instead of sharing the row. margin-right
+  // never moves an element's left edge, so reading it live here (even mid
+  // resize-drag) is safe and can't feedback-loop.
+  if (document.body.classList.contains('doc-view')) {
+    const paneLeft = document.getElementById('doc-editor-pane')?.getBoundingClientRect?.().left;
+    if (Number.isFinite(paneLeft)) {
+      const maxByDocPane = (window.innerWidth - paneLeft) - MIN_DOC_PANE_WIDTH;
+      max = Math.min(max, maxByDocPane);
+    }
+  }
   return _clampDockWidthToSpace(width, min, max);
 }
 
@@ -237,10 +260,26 @@ function _disconnectLeftDockObservers(content) {
 }
 
 function _applyEmailDocSplitGeometry(left, emailWidth) {
+  // left/emailWidth are POST-zoom (callers derive them from
+  // getBoundingClientRect()/window.innerWidth arithmetic), but these CSS
+  // custom properties are consumed directly by a pure stylesheet rule
+  // (style.css `#email-lib-modal.modal-left-docked { left: var(--email-doc-
+  // split-left-x); width: var(--email-doc-split-email-w); }`) with no JS in
+  // between to divide by zoom — the browser's own CSS zoom rendering scales
+  // whatever numeric value lands in a length property, so a post-zoom value
+  // here gets double-scaled under the "Bigger" text-size setting. The
+  // sibling functions in emailLibrary.js (_setEmailDocumentSplit,
+  // _measureEmailDocumentSplit) already document and follow the correct
+  // convention ("every style/custom-property write below is pre-zoom") —
+  // this function broke that convention and never converted. Divide once
+  // here so both write paths agree, matching what the outer wrapper's
+  // width ends up rendering vs. the inner .modal-content (which already
+  // divides correctly via its own content.style.width write).
+  const zr = _zoomRatio();
   const x = left + emailWidth;
-  document.documentElement.style.setProperty('--email-doc-split-left-x', `${left}px`);
-  document.documentElement.style.setProperty('--email-doc-split-email-w', `${emailWidth}px`);
-  document.documentElement.style.setProperty('--email-doc-split-right-x', `${x}px`);
+  document.documentElement.style.setProperty('--email-doc-split-left-x', `${left / zr}px`);
+  document.documentElement.style.setProperty('--email-doc-split-email-w', `${emailWidth / zr}px`);
+  document.documentElement.style.setProperty('--email-doc-split-right-x', `${x / zr}px`);
 
   // emailLibrary.js pins the document pane with inline !important styles
   // after opening a document beside a snapped email. Update that inline
@@ -248,7 +287,7 @@ function _applyEmailDocSplitGeometry(left, emailWidth) {
   const docPane = document.getElementById('doc-editor-pane');
   if (!docPane || window.innerWidth <= 768) return;
   docPane.style.setProperty('position', 'fixed', 'important');
-  docPane.style.setProperty('left', `${x / _zoomRatio()}px`, 'important');
+  docPane.style.setProperty('left', `${x / zr}px`, 'important');
   docPane.style.setProperty('right', 'var(--right-dock-w, 0px)', 'important');
   docPane.style.setProperty('top', '0px', 'important');
   docPane.style.setProperty('bottom', '0px', 'important');
@@ -274,7 +313,11 @@ function _clearEmailDocSplitGeometry() {
 
 function _resolveEmailDocSplitWidth(content, left) {
   const available = Math.max(0, window.innerWidth - left);
-  const fallback = Math.max(440, available * 0.55);
+  // Genuine 50/50 split (user preference) when there's no user-set/stored
+  // width yet (fresh dock commit with a doc/PDF already open).
+  // _clampEmailDocSplitWidth below still reserves minDoc so the doc pane
+  // never gets squeezed to nothing on a small viewport.
+  const fallback = Math.max(360, Math.round(available * 0.5));
   const requested = content?._emailDocSplitUserW || _storedEmailDocSplitWidth() || fallback;
   return _clampEmailDocSplitWidth(requested, left);
 }
@@ -909,9 +952,37 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
       }
     } else {
       const left = _leftNavRight();
-      w = _clampLeftDockWidth(clientX - left, left);
-      content._userDockWidth = w;
-      content._emailDocSplitUserW = w;
+      const splitActive = document.body.classList.contains('email-doc-split-active');
+      // _clampLeftDockWidth only reserves MIN_CHAT_WIDTH for whatever sits to
+      // the right — correct when the chat area is there, but when a doc/PDF
+      // pane is open beside the email (email-doc-split-active) that pane
+      // needs its own reserved minimum (_clampEmailDocSplitWidth's minDoc),
+      // not the chat's smaller floor. Using the wrong clamp here let a user
+      // drag the resize handle wide enough to squeeze/cover the doc pane,
+      // and since this branch never updated the split's right-x, the doc
+      // pane stayed frozen at its old boundary while email grew past it.
+      w = splitActive
+        ? _clampEmailDocSplitWidth(clientX - left, left)
+        : _clampLeftDockWidth(clientX - left, left);
+      // Mirror of the _emailDocSplitUserW guard below: only cache into
+      // _userDockWidth when NOT splitActive. _resolveLeftDockWidth reads
+      // content._userDockWidth FIRST, ahead of even its own fallback to
+      // _resolveEmailDocSplitWidth — so a value cached here during a plain
+      // chat-dock resize (computed via the wider _clampLeftDockWidth) would
+      // silently win over the correct split-aware width on every future
+      // _anchorLeftDock call that happens to route through
+      // _resolveLeftDockWidth, for the rest of the page session.
+      if (!splitActive) content._userDockWidth = w;
+      // Only cache into _emailDocSplitUserW when the width was actually
+      // computed FOR the split (splitActive). Setting it unconditionally
+      // meant a resize done in plain chat-dock mode (before any doc/PDF was
+      // open, using the wider chat-oriented clamp) got cached on the DOM
+      // node and then silently overrode every later _resolveEmailDocSplitWidth
+      // fallback fix for the REST of the page session — _resolveEmailDocSplitWidth
+      // checks `content._emailDocSplitUserW || ... || fallback`, so a stale
+      // wide value here always won regardless of how the fallback formula
+      // itself was tuned.
+      if (splitActive) content._emailDocSplitUserW = w;
       const zr = _zoomRatio();
       content.style.left = (left / zr) + 'px';
       content.style.right = 'auto';
@@ -920,8 +991,12 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
       document.body.classList.add('left-dock-active');
       document.documentElement.style.setProperty(
         '--left-dock-w',
-        document.body.classList.contains('email-doc-split-active') ? '0px' : (w / zr) + 'px',
+        splitActive ? '0px' : (w / zr) + 'px',
       );
+      if (splitActive) {
+        _saveEmailDocSplitWidth(w);
+        _applyEmailDocSplitGeometry(left, w);
+      }
     }
     _positionEdgeDockResizeHandles();
     return w;
@@ -991,7 +1066,15 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
         const finalW = side === 'right'
           ? parseFloat(document.documentElement.style.getPropertyValue('--right-dock-w')) || content?.getBoundingClientRect?.().width || 0
           : content?.getBoundingClientRect?.().width || 0;
-        if (finalW) _saveDockWidth(owner, content, side, finalW);
+        // Persistent (localStorage) counterpart of the _userDockWidth /
+        // _emailDocSplitUserW in-memory caching bugs: only save the plain
+        // edge-dock width when the email+doc split was NOT active during
+        // this resize. Saving unconditionally meant a width picked while
+        // sharing the row with chat (wider _clampLeftDockWidth) could
+        // survive a full page reload via _storedDockWidth and silently win
+        // over the doc-aware width on any future left-dock anchor.
+        const _skipSave = side === 'left' && document.body.classList.contains('email-doc-split-active');
+        if (finalW && !_skipSave) _saveDockWidth(owner, content, side, finalW);
         ev.preventDefault();
       };
       document.addEventListener('pointermove', onMove, true);
@@ -1047,10 +1130,12 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
       && document.body.classList.contains('doc-view')
       && window.innerWidth > 768;
     if (!splitActive) { stripe.style.display = 'none'; return; }
+    // --email-doc-split-right-x is now stored pre-zoom (see
+    // _applyEmailDocSplitGeometry) — no further division needed here.
     const x = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--email-doc-split-right-x')) || 0;
     if (!x) { stripe.style.display = 'none'; return; }
     stripe.style.display = 'block';
-    stripe.style.left = ((x - 5) / _zoomRatio()) + 'px';
+    stripe.style.left = (x - 5) + 'px';
   };
 
   const _dragTo = (clientX) => {
@@ -1089,7 +1174,12 @@ export function makeEdgeDockController(modal, side = 'right', dockClass) {
       document.body.classList.remove('email-doc-split-resizing');
       document.body.style.cursor = prevCursor;
       document.body.style.userSelect = prevUserSelect;
-      const rightX = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--email-doc-split-right-x')) || 0;
+      // rightX is now stored pre-zoom (see _applyEmailDocSplitGeometry), but
+      // left (_leftNavRight, via getBoundingClientRect) is post-zoom, and
+      // _saveEmailDocSplitWidth expects a post-zoom width (it divides once
+      // before persisting). Bring rightX back to post-zoom before mixing.
+      const zr = _zoomRatio();
+      const rightX = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--email-doc-split-right-x')) || 0) * zr;
       const left = _leftNavRight();
       if (rightX > left) _saveEmailDocSplitWidth(rightX - left);
       ev.preventDefault();

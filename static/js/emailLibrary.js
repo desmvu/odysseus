@@ -1113,22 +1113,44 @@ function _emailSplitLeftEdgeIfSidebarCollapsed() {
   return _readCssPx('--icon-rail-w');
 }
 
+// Shared with the modal-left-docked → email-snap-left conversion below: a
+// manual drag-dock (the "blue box" snap) commits at a width sized to leave
+// room for the CHAT area (_clampLeftDockWidth in modalSnap.js), since no
+// document is open yet at drag time. Opening a doc/PDF afterward must
+// re-clamp against this SAME doc-space requirement, or the carried-over
+// chat-sized width stays too wide and visually covers the doc pane.
+const _EMAIL_DOC_MIN_WIDTH = 460;
+const _EMAIL_DOC_BREATHING_ROOM = 40;
+
 function _hasDesktopRoomForEmailAndDocument(modal, opts = {}) {
   if (window.innerWidth <= 768) return false;
-  if (window.innerWidth >= 1100) return true;
   const content = modal?.querySelector?.('.modal-content');
   const rect = content?.getBoundingClientRect?.();
   const isFullscreen = modal?.classList?.contains('email-lib-fullscreen')
     || modal?.classList?.contains('email-window-fullscreen');
+  // Target a genuine 50/50 split (user preference, not a narrow sidebar) —
+  // must match _snapEmailModalToLeftSidebar's own W calc below and
+  // _resolveEmailDocSplitWidth's fallback in modalSnap.js, or this room
+  // check and the actual committed width disagree.
   const emailWidth = isFullscreen
-    ? Math.min(440, Math.max(360, Math.round(window.innerWidth * 0.30)))
+    ? Math.max(360, Math.round(window.innerWidth * 0.50))
     : Math.max(360, Math.round(rect?.width || 440));
   // Relaxed thresholds — the old 560 + 72 forced an unnecessary tab-down
   // on ~1200–1300px viewports where there was visually plenty of room.
-  const docMinWidth = 460;
-  const breathingRoom = 40;
-  const leftEdgeNow = isFullscreen ? _emailSplitLeftEdge() : Math.max(0, Math.round(rect?.left || _emailSplitLeftEdge()));
-  const leftEdge = opts.assumeSidebarCollapsed ? _emailSplitLeftEdgeIfSidebarCollapsed() : leftEdgeNow;
+  const docMinWidth = _EMAIL_DOC_MIN_WIDTH;
+  const breathingRoom = _EMAIL_DOC_BREATHING_ROOM;
+  // _emailSplitLeftEdge()/_emailSplitLeftEdgeIfSidebarCollapsed() read raw
+  // CSS custom-property values (--icon-rail-w/--sidebar-w) via
+  // getComputedStyle — that's pre-zoom/authored pixel space. window.innerWidth
+  // and rect (getBoundingClientRect) are post-zoom/rendered space. Under the
+  // "Bigger" text-size setting (CSS zoom, e.g. 1.25x), comparing them
+  // directly understated how much width the sidebar actually occupies,
+  // wrongly concluding there was room and skipping the sidebar-collapse
+  // fallback below — leaving the doc/PDF pane squeezed into too little room
+  // (observed: PDF pane visually covered by the email pane at 1.25x zoom).
+  const zr = _zoomRatio();
+  const leftEdgeNow = isFullscreen ? _emailSplitLeftEdge() * zr : Math.max(0, Math.round(rect?.left || _emailSplitLeftEdge() * zr));
+  const leftEdge = opts.assumeSidebarCollapsed ? _emailSplitLeftEdgeIfSidebarCollapsed() * zr : leftEdgeNow;
   return (window.innerWidth - leftEdge - emailWidth) >= (docMinWidth + breathingRoom);
 }
 
@@ -1149,6 +1171,22 @@ function _prepareEmailWindowForDocument(modal) {
       try { collapseSidebarToRail(); } catch (_) {}
     }
   }
+  // A DIFFERENT, independent system (tileManager.js's generic window-tiling
+  // — the same "blue zone" the OS-snap ghost preview shows) can also have
+  // positioned this modal, via data-_tile-zone / data-_tile-pre-snap
+  // dataset attributes rather than the modal-left-docked class. Since it
+  // sets neither modal-left-docked nor email-snap-left, this function used
+  // to silently no-op on a tile-snapped modal — leaving whatever width
+  // tileManager last committed (up to half the raw screen, uncoordinated
+  // with any doc pane) in place forever, invisible to every later re-clamp
+  // attempt. Treat it the same as modal-left-docked: clear the tile state
+  // and fall through to the same re-clamp logic below.
+  const _tileContent = modal.querySelector('.modal-content');
+  if (_tileContent?.dataset?._tileZone) {
+    delete _tileContent.dataset._tileZone;
+    delete _tileContent.dataset._tilePreSnap;
+    modal.classList.add('modal-left-docked');
+  }
   if (modal.classList.contains('modal-left-docked')) {
     const content = modal.querySelector('.modal-content');
     const rect = content?.getBoundingClientRect?.();
@@ -1166,13 +1204,21 @@ function _prepareEmailWindowForDocument(modal) {
     if (content) {
       delete content._dockSide;
       const _zr = _zoomRatio();
+      const _leftPost = rect?.left || (_emailSplitLeftEdge() * _zr);
+      // rect.width here is whatever the manual chat-sharing drag-dock landed
+      // on — it was never sized with a doc pane in mind. Re-clamp it down to
+      // however much room is actually left for the doc/PDF pane, instead of
+      // carrying the stale chat-sized width over verbatim (the bug: doing so
+      // let the email pane visually cover the doc pane after this handoff).
+      const _maxEmailW = Math.max(320, window.innerWidth - _leftPost - (_EMAIL_DOC_MIN_WIDTH + _EMAIL_DOC_BREATHING_ROOM));
+      const _clampedW = Math.min(rect?.width || 440, _maxEmailW);
       content.style.position = 'fixed';
-      content.style.left = Math.round((rect?.left || _emailSplitLeftEdge()) / _zr) + 'px';
+      content.style.left = Math.round(_leftPost / _zr) + 'px';
       content.style.top = '0';
       content.style.right = 'auto';
       content.style.bottom = '0';
-      content.style.width = Math.round((rect?.width || 440) / _zr) + 'px';
-      content.style.maxWidth = Math.round((rect?.width || 440) / _zr) + 'px';
+      content.style.width = Math.round(_clampedW / _zr) + 'px';
+      content.style.maxWidth = Math.round(_clampedW / _zr) + 'px';
       content.style.height = '100vh';
       content.style.maxHeight = '100vh';
       content.style.borderRadius = '0';
@@ -3478,8 +3524,14 @@ function _snapEmailModalToLeftSidebar(modal) {
   modal.classList.remove('email-window-fullscreen');
   modal.classList.add('email-snap-left');
   const zr = _zoomRatio();
-  const W = Math.min(440, Math.max(360, Math.round(window.innerWidth * 0.30)));
   const left = _emailSplitLeftEdge();
+  // Target a genuine 50/50 split (user preference, not a narrow sidebar) —
+  // reserve enough for the doc/PDF pane so it never gets squeezed to
+  // nothing on a small viewport. Must match _hasDesktopRoomForEmailAndDocument
+  // above and _resolveEmailDocSplitWidth's fallback in modalSnap.js.
+  const _availablePost = Math.max(0, window.innerWidth - left * zr);
+  const _reservedDoc = 400;
+  const W = Math.max(360, Math.min(Math.round(_availablePost * 0.5), Math.max(360, _availablePost - _reservedDoc)));
   content.style.position = 'fixed';
   content.style.left = '0';
   content.style.top = '0';
