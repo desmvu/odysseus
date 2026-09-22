@@ -1526,6 +1526,21 @@ def _classify_agent_request(messages: List[Dict], last_user: str) -> Dict[str, o
         domains.add("settings")
     if has(r"\b(contact|contacts|phone|phone number|address book|vcard)\b"):
         domains.add("contacts")
+    # Spending/income/investing statements ("spent 500k on X", "my savings
+    # account", "invest in gold") never matched any existing bucket, so a
+    # plain financial statement was always classified low-signal and the
+    # agent silently reused whatever MCP tools were relevant to the PREVIOUS
+    # unrelated turn instead of re-running skill/tool retrieval (observed:
+    # an investment log landed in manage_notes with the Budget MCP never
+    # even offered, because the prior turn had only Gold MCP tools loaded).
+    if has(
+        r"\b(spent|spend|spending|earned|earn|earning|income|expense|expenses|"
+        r"budget|budgeting|invest|investing|investment|investments|savings?|save|saved|"
+        r"salary|wage|wages|paycheck|paid|payment|deposit|withdraw|net worth|"
+        r"emergency fund|gold price|gold prices|transaction|transactions)\b",
+        r"\d[\d,\.]*\s?(vnd|đ|usd)\b",
+    ):
+        domains.add("finance")
     # API-integration intent — calling a configured service via the api_call
     # tool. Without this the #3794 repro ("Use the api_call tool to call Home
     # Assistant GET /api/states") matched no domain, classified as low-signal,

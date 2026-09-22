@@ -674,6 +674,7 @@ class McpManager:
         soulseek_workflow_tools: List[str] = []
         soulseek_tool_discovery_tools: List[str] = []
         nextcloud_workflow_tools: List[str] = []
+        small_catalog_tools: Set[str] = set()
         for server_id, tools in self._tools.items():
             if self.is_builtin(server_id):
                 continue
@@ -697,6 +698,27 @@ class McpManager:
             # read-then-write pair together instead of returning only a write
             # group or unrelated lexical matches.
             enabled_names = {str(tool["name"]) for tool in tools if tool["name"] not in disabled}
+            # A named server with a small catalog (e.g. a 9-tool analytics
+            # server) never needs the generic lexical-ranking cutoff that
+            # exists to cap hundred-tool servers like Nextcloud/slskd down to
+            # max_tools — ranking a short natural-language query against a
+            # handful of tools can easily drop the one the model actually
+            # needs (observed: "last 10 videos" ranked yt_channel_info/
+            # yt_channel_overview/yt_audience_retention above yt_top_videos,
+            # which the model then reported as "not available"). Remember it
+            # as a fallback candidate here, but do NOT `continue` past the
+            # rest of this server's processing below — the more precise
+            # workflow-specific blocks (explicitly_named, nextcloud_workflow_
+            # tools, etc.) must still get a chance to run for this server too,
+            # since they're a stronger signal than "just return everything"
+            # (regression: an early `continue` here made a 3-tool Nextcloud
+            # subset skip the nc_webdav_read_file/-list_directory
+            # disambiguation entirely and return all 3 tools unranked even
+            # when the query clearly asked to read one specific file).
+            if enabled_names and len(enabled_names) <= 12:
+                small_catalog_tools.update(
+                    f"mcp__{server_id}__{name}" for name in enabled_names
+                )
             if {"request", "requests"} & query_terms:
                 search_names = sorted(name for name in enabled_names if name.endswith("_search"))
                 requests_names = sorted(name for name in enabled_names if name.endswith("_requests"))
@@ -863,6 +885,13 @@ class McpManager:
             return set(sorted(soulseek_workflow_tools)[:max_tools])
         if nextcloud_workflow_tools:
             return set(sorted(nextcloud_workflow_tools)[:max_tools])
+        # Small-catalog fallback: nothing more precise matched (no literal
+        # tool-name mention, no Nextcloud/Soulseek workflow signal), so skip
+        # the max_tools-capped generic ranking (which exists for large
+        # catalogs) and hand back the whole small catalog instead of a
+        # possibly-wrong top-N.
+        if small_catalog_tools:
+            return small_catalog_tools
         ranked.sort(key=lambda item: (-item[0], item[1]))
         return {qualified for _, qualified in ranked[:max_tools]}
 

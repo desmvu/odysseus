@@ -255,12 +255,23 @@ class ToolIndex:
         ids = []
         metadatas = []
         current_server = ""
-        for line in all_tools.strip().split("\n"):
-            line = line.strip()
+        for raw_line in all_tools.strip().split("\n"):
+            line = raw_line.strip()
             # Track which server section we're in (for context in descriptions)
             if line.startswith("**") and line.endswith(":**"):
                 current_server = line.strip("*: ")
-            elif line.startswith("- ") and ":" in line:
+            # Genuine tool entries always have exactly the 2-space indent
+            # produced by get_tool_descriptions_for_prompt's
+            # `f"  - {qualified_name}: ..."`. Checking on the STRIPPED line
+            # (as before) loses that signal, so a nested sub-bullet inside a
+            # tool's own multi-line description (observed: Seerr tool docs
+            # embedding param lines like "  - type: ...") gets misparsed as
+            # its own phantom top-level tool. Since multiple real tools can
+            # share the same nested param name, this produced duplicate
+            # chromadb IDs (e.g. repeated "mcp_type") and broke the entire
+            # upsert batch, silently degrading tool-RAG retrieval for every
+            # query that didn't hit an exact keyword/skill match.
+            elif raw_line.startswith("  - ") and not raw_line.startswith("   ") and ":" in line:
                 # Format: "- tool_name: description"
                 name_desc = line[2:].split(":", 1)
                 if len(name_desc) == 2:

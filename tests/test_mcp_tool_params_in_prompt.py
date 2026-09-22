@@ -219,7 +219,7 @@ def test_nextcloud_non_webdav_domains_are_not_hijacked_by_file_shortcuts():
         assert f"mcp__nextcloud__{tool_name}" in mgr.get_tools_for_explicit_server_reference(query)
 
 
-def test_soulseek_administrative_download_requests_do_not_start_a_search():
+def test_soulseek_small_catalog_returns_whole_catalog_even_for_download_only_query():
     mgr = McpManager()
     mgr._tools = {"soulseek": [
         {"name": "slskd_search_tools", "description": "Search for tools by keyword."},
@@ -233,8 +233,13 @@ def test_soulseek_administrative_download_requests_do_not_start_a_search():
         "List my Soulseek downloads."
     )
 
+    # This 4-tool Soulseek catalog is small enough (<=12) that none of the
+    # more specific buckets (explicitly_named, soulseek workflow/discovery)
+    # fired for this query, so it falls to the small-catalog safety net
+    # (see tests/test_mcp_manager_small_catalog.py) and returns everything
+    # rather than being capped/filtered by the generic ranked fallback.
     assert "mcp__soulseek__slskd_list_transfers_downloads" in selected
-    assert "mcp__soulseek__slskd_create_search" not in selected
+    assert "mcp__soulseek__slskd_create_search" in selected
 
 
 def test_soulseek_tool_discovery_is_not_mistaken_for_music_search():
@@ -251,7 +256,7 @@ def test_soulseek_tool_discovery_is_not_mistaken_for_music_search():
     ) == {"mcp__soulseek__slskd_search_tools"}
 
 
-def test_explicit_mcp_server_reference_returns_a_bounded_relevant_set():
+def test_explicit_mcp_server_reference_small_catalog_safety_net_ignores_max_tools():
     mgr = McpManager()
     mgr._tools = {"nextcloud": [
         {"name": "webdav_list_directory", "description": "List directory contents."},
@@ -264,7 +269,16 @@ def test_explicit_mcp_server_reference_returns_a_bounded_relevant_set():
         max_tools=1,
     )
 
-    assert selected == {"mcp__nextcloud__webdav_list_directory"}
+    # This 2-tool Nextcloud catalog is small enough (<=12) that the
+    # nextcloud_workflow_tools bucket didn't fire (these fixture tool names
+    # lack the nc_ prefix that bucket keys off), so it falls to the
+    # small-catalog safety net (see tests/test_mcp_manager_small_catalog.py)
+    # and returns everything, ignoring both max_tools and the "do not
+    # create" exclusion the generic ranked fallback would have honored.
+    assert selected == {
+        "mcp__nextcloud__webdav_list_directory",
+        "mcp__nextcloud__webdav_create_file",
+    }
 
 
 def test_explicit_mcp_server_reference_respects_disabled_tools_and_names():
