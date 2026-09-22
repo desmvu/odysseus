@@ -1391,3 +1391,58 @@ class UploadHandler:
         
         logger.info(f"File uploaded successfully: {original_filename} ({file_size} bytes)")
         return file_metadata
+
+    def register_existing_upload(
+        self,
+        file_id: str,
+        path: str,
+        owner: Optional[str] = None,
+        mime: str = "application/octet-stream",
+        original_name: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Index a file server code already wrote to disk (not via save_upload).
+
+        resolve_upload()/reserve_upload() only ever look up uploads.json —
+        they never scan the filesystem — so any server-generated file
+        (e.g. a PDF extracted from an email attachment via shutil.copyfile)
+        is permanently 404 "not found" downstream unless it also gets an
+        entry here, even though the bytes are genuinely on disk inside
+        upload_dir. Mirrors the metadata shape save_upload() writes.
+        """
+        if not self.validate_upload_id(file_id):
+            return None
+        if not self._inside_upload_dir(path) or not os.path.isfile(path):
+            return None
+        try:
+            file_size = os.path.getsize(path)
+            with open(path, "rb") as f:
+                file_hash = self.calculate_file_hash(f)
+        except Exception as e:
+            logger.warning(f"Failed to register existing upload {file_id}: {e}")
+            return None
+        created_at = datetime.now().isoformat()
+        file_metadata = {
+            "id": file_id,
+            "path": path,
+            "mime": mime,
+            "size": file_size,
+            "name": original_name or file_id,
+            "hash": file_hash,
+            "checksum_sha256": file_hash,
+            "original_name": original_name or file_id,
+            "uploaded_at": created_at,
+            "created_at": created_at,
+            "last_accessed": created_at,
+            "owner": owner,
+        }
+        uploads_db_path = os.path.join(self.upload_dir, "uploads.json")
+        with self._index_lock:
+            try:
+                current = self._load_upload_index() if os.path.exists(uploads_db_path) else {}
+                storage_key = f"{owner}:{file_hash}" if owner else file_hash
+                current[storage_key] = file_metadata
+                self._atomic_write_json(uploads_db_path, current)
+            except Exception as e:
+                logger.warning(f"Failed to index existing upload {file_id}: {e}")
+                return None
+        return file_metadata

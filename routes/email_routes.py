@@ -3590,6 +3590,21 @@ def setup_email_routes():
                 _os.makedirs(dated_dir, exist_ok=True)
                 dest_path = _os.path.join(dated_dir, upload_id)
                 _shutil.copyfile(str(filepath), dest_path)
+                # The copy above only puts bytes on disk — resolve_upload()/
+                # reserve_upload() (used by every later PDF read, including
+                # render-pages) only ever check the uploads.json index, never
+                # the filesystem, so without this the file is permanently
+                # "Source PDF not found" even though it genuinely exists.
+                try:
+                    from src.tool_utils import get_upload_handler as _guh
+                    _uh = _guh()
+                    if _uh is not None:
+                        _uh.register_existing_upload(
+                            upload_id, dest_path, owner=_doc_user,
+                            mime="application/pdf", original_name=base,
+                        )
+                except Exception as _e:
+                    logger.warning(f"Failed to index attachment PDF upload {upload_id}: {_e}")
 
                 is_form = False
                 try:
