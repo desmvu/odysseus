@@ -39,3 +39,22 @@ def test_switching_tabs_never_issues_document_delete():
 def test_empty_draft_deletion_remains_limited_to_explicit_close_flow():
     detach_doc = _function_body(DOC_JS, "function _detachDocFromSession(docId")
     assert "method: 'DELETE'" in detach_doc
+
+
+def test_missing_doc_entry_bails_out_before_the_delete_branch():
+    """If docs.get(docId) already returned undefined (the Map lost this entry
+    to a prior/concurrent call), hasContent/hasTitle would previously read as
+    undefined (falsy) and silently fall through to the DELETE branch for a
+    document _detachDocFromSession never actually inspected — confirmed live
+    via a DELETE /api/document/<id> 200 OK on a document the user never
+    touched (see BUG doc for this fix). A missing doc must return before any
+    hasContent/hasTitle check, not rely on them coincidentally being falsy.
+    """
+    detach_doc = _function_body(DOC_JS, "function _detachDocFromSession(docId")
+    guard_idx = detach_doc.index("if (!doc) {")
+    delete_idx = detach_doc.index("method: 'DELETE'")
+    assert guard_idx != -1
+    assert guard_idx < delete_idx, "the !doc guard must appear before the delete branch"
+    guard_body = detach_doc[guard_idx:detach_doc.index("}", guard_idx) + 1]
+    assert "return;" in guard_body
+    assert "DELETE" not in guard_body

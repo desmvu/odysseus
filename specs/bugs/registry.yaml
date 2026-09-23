@@ -413,3 +413,27 @@ bugs:
       _deleteCachedModel that appends /snapshots for HF-cache models,
       wired into both delete-command branches. Model grouping in the
       Launch tab is unaffected (still keyed by repo_id).
+  - bug_id: BUG-2026-09-23T180000
+    date: "2026-09-23"
+    severity: high
+    priority: high
+    scope: documents
+    summary: >-
+      _detachDocFromSession in static/js/document.js (fired by ordinary,
+      unconfirmed tab-close) read docs.get(docId) without guarding against
+      it returning undefined -- when the in-memory Map had already lost
+      that entry to a prior/concurrent call, hasContent/hasTitle silently
+      evaluated to undefined (falsy) and fell through to an unconditional
+      DELETE /api/document/{id}, soft-deleting a real, titled document the
+      user never asked to discard. Confirmed via docker logs: a real
+      DELETE ... 200 OK request was sent by the browser for a document the
+      user said they never saw.
+    file: specs/bugs/BUG-2026-09-23T180000-document-tab-close-race-deletes-live-document.md
+    status: resolved
+    files_changed:
+      - static/js/document.js
+    approach: >-
+      Added an early `if (!doc) { docs.delete(docId); _syncDocIndicator();
+      return; }` guard before hasContent/hasTitle are computed, so a
+      missing Map entry can never reach the delete branch. Restored the
+      affected document's is_active flag directly in the DB.

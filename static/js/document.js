@@ -4618,7 +4618,20 @@ function _zoomRatio() {
   // session makes it look like the document vanished from that chat.
   function _detachDocFromSession(docId, { toast = false } = {}) {
     const doc = docs.get(docId);
-    const hasContent = doc && doc.content && doc.content.trim().length > 0;
+    // If the Map already lost this entry (a duplicate close, or a race with
+    // another handler removing it first), we have zero information about
+    // this document — hasContent/hasTitle would both silently read as
+    // `undefined` (falsy) below, sliding straight past the safety check
+    // into the delete branch for a document we never actually inspected.
+    // That is exactly the failure the existing checks below try to
+    // prevent, just for a case they didn't cover. Bail out without
+    // touching the server; there's nothing here to safely discard.
+    if (!doc) {
+      docs.delete(docId);
+      _syncDocIndicator();
+      return;
+    }
+    const hasContent = doc.content && doc.content.trim().length > 0;
     // A real, user-named document (title set, not the "Untitled" default)
     // must never be silently soft-deleted just because its in-memory
     // `content` happens to read empty at close time — that in-memory field
@@ -4627,7 +4640,7 @@ function _zoomRatio() {
     // warns about). This caused real, titled documents (e.g. "SETUP TOUR
     // 2026 - Desktop") to get DELETEd on ordinary tab-close. Only discard
     // when BOTH content and title are empty — a genuinely blank scratch tab.
-    const hasTitle = doc && doc.title && doc.title.trim().length > 0 && doc.title.trim().toLowerCase() !== 'untitled';
+    const hasTitle = doc.title && doc.title.trim().length > 0 && doc.title.trim().toLowerCase() !== 'untitled';
     if (hasContent || hasTitle) {
       saveDocument({ silent: true }).catch(() => {});
       if (toast && uiModule) uiModule.showToast('Document closed');
