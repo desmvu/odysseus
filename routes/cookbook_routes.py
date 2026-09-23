@@ -1829,6 +1829,39 @@ def setup_cookbook_routes() -> APIRouter:
         # agent_loop trusts emitted tool_calls instead of the name heuristic.
         is_ollama_endpoint = "ollama" in (req.cmd or "").lower()
         supports_tools = True if "--enable-auto-tool-choice" in req.cmd else None
+        # A vision-enabled llama.cpp serve loads a multimodal projector
+        # (--mmproj / --clip_model_path, see static/js/cookbook.js's Vision
+        # toggle) alongside the language model on the SAME endpoint/model id
+        # -- there's no separate "vision server", so detecting it from the
+        # launch command is the only signal available here.
+        is_vision_endpoint = bool(re.search(r"--mmproj\b|--clip_model_path\b", req.cmd or ""))
+
+        def _auto_set_chat_defaults(endpoint_id: str) -> None:
+            """Point Settings > AI Defaults at whatever was just served.
+
+            The user explicitly wants every local serve to become the default
+            chat model (a served model is, almost by definition, the one they
+            want to talk to right now), and the vision default whenever this
+            serve loaded a multimodal projector. Both are unconditional
+            overwrites, not "fill only if empty" -- picking a different served
+            model is the more common case than wanting to keep an older one
+            pinned as default.
+            """
+            try:
+                from src.settings import load_settings, save_settings
+                settings = load_settings()
+                settings["default_endpoint_id"] = endpoint_id
+                settings["default_model"] = req.repo_id or ""
+                if is_vision_endpoint:
+                    settings["vision_model"] = req.repo_id or ""
+                    settings["vision_enabled"] = True
+                save_settings(settings)
+                logger.info(
+                    f"Auto-set chat defaults: endpoint={endpoint_id} model={req.repo_id!r} "
+                    f"vision={is_vision_endpoint}"
+                )
+            except Exception as _se:
+                logger.warning(f"Auto-set chat defaults failed: {_se!r}")
         # Pin the model the user launched for every Cookbook-created LLM
         # endpoint, not just Ollama. Some OpenAI-compatible servers report a
         # deployment alias from /v1/models, and a stale server can answer on the
@@ -1897,6 +1930,7 @@ def setup_cookbook_routes() -> APIRouter:
                     db.delete(s)
                 if stale:
                     db.commit()
+                _auto_set_chat_defaults(existing.id)
                 return existing.id
 
             ep_id = f"local-{uuid.uuid4().hex[:8]}"
@@ -1950,6 +1984,7 @@ def setup_cookbook_routes() -> APIRouter:
                         logger.info(f"Auto-register: probed {len(probed)} models @ {base_url}")
             except Exception as _pe:
                 logger.warning(f"Auto-register: probe-after-create failed for {base_url}: {_pe!r}")
+            _auto_set_chat_defaults(ep_id)
             return ep_id
         except Exception as e:
             logger.error(f"Failed to auto-register local model endpoint: {e}")

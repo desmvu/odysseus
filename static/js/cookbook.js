@@ -2419,12 +2419,62 @@ function _wireTabEvents(body) {
       }
       return suffix;
     }
+    const dlGgufTrigger = document.getElementById('cookbook-dl-gguf-quant-trigger');
+    const dlGgufTriggerLabel = dlGgufTrigger?.querySelector('.cookbook-dl-gguf-quant-trigger-label') || null;
+    function _syncGgufTriggerLabel() {
+      if (!dlGgufTriggerLabel || !dlGgufQuant) return;
+      const opt = dlGgufQuant.options[dlGgufQuant.selectedIndex];
+      dlGgufTriggerLabel.textContent = opt ? opt.textContent : '';
+    }
+    function _closeGgufQuantMenu() {
+      document.querySelectorAll('.cookbook-dl-gguf-quant-menu').forEach(dismissOrRemove);
+    }
+    function _showGgufQuantMenu() {
+      _closeGgufQuantMenu();
+      if (!dlGgufQuant || !dlGgufQuant.options.length || !dlGgufTrigger) return;
+      const dropdown = document.createElement('div');
+      dropdown.className = 'dropdown cookbook-dl-gguf-quant-menu';
+      const rect = dlGgufTrigger.getBoundingClientRect();
+      // DOMRect/window values are rendered (post-zoom) pixels under the
+      // Larger text-size CSS zoom setting; fixed inline lengths written to
+      // .style are interpreted pre-zoom, so divide here rather than at the
+      // native popup layer (which has no such hook) -- same convention as
+      // _showDepMenu() above and modalManager.js's _zoomRatio().
+      const zr = document.documentElement.offsetWidth ? window.innerWidth / document.documentElement.offsetWidth : 1;
+      const minW = Math.max(rect.width, 120);
+      let left = Math.min(rect.left, window.innerWidth - minW - 8);
+      left = Math.max(8, left);
+      dropdown.style.cssText = `position:fixed;display:block;z-index:${topPortalZ()};top:${(rect.bottom + 4) / zr}px;left:${left / zr}px;right:auto;min-width:${minW / zr}px;max-width:calc(100vw - ${16 / zr}px);max-height:calc(60vh);overflow-y:auto;background:var(--panel,var(--bg));border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.3);padding:6px;font-size:12px;`;
+      Array.from(dlGgufQuant.options).forEach((opt, idx) => {
+        const it = document.createElement('div');
+        it.className = 'dropdown-item-compact' + (idx === dlGgufQuant.selectedIndex ? ' active' : '');
+        it.textContent = opt.textContent;
+        it.addEventListener('click', (e) => {
+          e.stopPropagation();
+          dlGgufQuant.selectedIndex = idx;
+          _syncGgufTriggerLabel();
+          dlGgufQuant.dispatchEvent(new Event('change', { bubbles: true }));
+          close();
+        });
+        dropdown.appendChild(it);
+      });
+      document.body.appendChild(dropdown);
+      const close = bindMenuDismiss(dropdown, () => { dropdown.remove(); }, (ev) =>
+        !dropdown.contains(ev.target) && ev.target !== dlGgufTrigger && !dlGgufTrigger.contains(ev.target));
+    }
+    dlGgufTrigger?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (document.querySelector('.cookbook-dl-gguf-quant-menu')) { _closeGgufQuantMenu(); return; }
+      _showGgufQuantMenu();
+    });
     function _hideGgufPicker(message = '') {
       if (dlGgufRow) dlGgufRow.style.display = 'none';
       if (dlGgufQuant) {
         dlGgufQuant.innerHTML = '';
         dlGgufQuant.dataset.repo = '';
       }
+      _closeGgufQuantMenu();
+      _syncGgufTriggerLabel();
       if (dlGgufNote) dlGgufNote.textContent = message;
     }
     async function _scanGgufRepo(rawValue) {
@@ -2441,6 +2491,7 @@ function _wireTabEvents(body) {
       dlGgufRow.style.display = 'flex';
       dlGgufQuant.innerHTML = '<option value="">Scanning...</option>';
       dlGgufQuant.dataset.repo = repo;
+      _syncGgufTriggerLabel();
       dlGgufNote.textContent = '';
       try {
         const res = await fetch(`/api/cookbook/hf-gguf-files?repo_id=${encodeURIComponent(repo)}`, { credentials: 'same-origin' });
@@ -2472,17 +2523,7 @@ function _wireTabEvents(body) {
           const count = byQuant.get(q).length;
           return `<option value="${esc(include)}">${esc(q)} (${count})</option>`;
         }).join('');
-        // Force a synchronous reflow right after replacing the options. Without
-        // this, the browser can still be holding a stale popup-height
-        // measurement from before this mutation (taken when the row was still
-        // showing the single "Scanning..." placeholder, or from before it was
-        // even display:flex) — so the FIRST time the user opens this <select>
-        // after a scan, the native option-list popup renders clipped to that
-        // stale, smaller height, and only shows every option correctly on a
-        // second open once the browser has recomputed layout in between.
-        // Reading a layout property here forces that recompute immediately,
-        // before the user can possibly open the popup.
-        void dlGgufQuant.offsetHeight;
+        _syncGgufTriggerLabel();
         const first = dlGgufQuant.options[0];
         dlGgufNote.textContent = first ? first.value : '';
         return !!(first && first.value);
@@ -3121,7 +3162,20 @@ function _renderRecipes() {
   html += `</div>`;
   html += `<div id="cookbook-dl-gguf-row" class="cookbook-dl-gguf-row" style="display:none;">`;
   html += `<span class="cookbook-dl-gguf-label">GGUF</span>`;
-  html += `<select class="cookbook-field-input" id="cookbook-dl-gguf-quant"></select>`;
+  // A native <select> here (removed) mispositions/clips its own popup under
+  // CSS zoom (the "Larger" text-size setting) -- a documented Chromium
+  // engine bug where zoom on an ancestor doesn't correctly propagate to
+  // native form-control popups, confirmed live (see
+  // specs/bugs/BUG-2026-09-24T193000-vision-fallback-and-gguf-dropdown-zoom.md).
+  // There's no JS/CSS hook to fix a native popup's own rendering, so this is
+  // a custom (JS-positioned) dropdown instead, following the same zoom-safe
+  // pattern already used by _showDepMenu()/the saved-config menu in this
+  // file. The <select> itself stays in the DOM, hidden, as the actual state
+  // holder -- every existing consumer of dlGgufQuant.value/.options/
+  // .dataset.repo and its 'change' listener keeps working unchanged; only
+  // how the user picks a value changes.
+  html += `<button type="button" class="cookbook-field-input cookbook-dl-gguf-quant-trigger" id="cookbook-dl-gguf-quant-trigger"><span class="cookbook-dl-gguf-quant-trigger-label"></span><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></button>`;
+  html += `<select id="cookbook-dl-gguf-quant" style="display:none;"></select>`;
   html += `<span id="cookbook-dl-gguf-note"></span>`;
   html += `</div>`;
   // Ollama-library browse used to live here as its own collapsible dropdown,

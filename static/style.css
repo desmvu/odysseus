@@ -22624,6 +22624,26 @@ body.gallery-selecting .gallery-dl-btn,
   min-width: 118px;
   flex: 0 0 auto;
 }
+.cookbook-dl-gguf-quant-trigger {
+  height: 28px;
+  min-width: 118px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  cursor: pointer;
+}
+.cookbook-dl-gguf-quant-trigger svg { opacity: 0.6; flex-shrink: 0; }
+.cookbook-dl-gguf-quant-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cookbook-dl-gguf-quant-menu .dropdown-item-compact.active {
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+}
 #cookbook-dl-gguf-note {
   opacity: 0.55;
   white-space: nowrap;

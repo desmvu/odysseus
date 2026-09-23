@@ -470,3 +470,48 @@ bugs:
       the plural spec_tokens/llama_spec_tokens field names. (2) and (4)
       were confirmed live with Puppeteer against the running container
       (headless Brave), including a before/after rect-dump repro for (2).
+  - bug_id: BUG-2026-09-24T193000
+    date: "2026-09-24"
+    severity: medium
+    priority: high
+    scope: cookbook,vision
+    summary: >-
+      Follow-up to BUG-2026-09-24T120000 after user retest, plus a new
+      feature request in the same follow-up: (1) the Vision fallback chain
+      (Settings -> Vision -> Fallbacks) was structurally unreachable
+      whenever the primary vision_model setting was empty/failed to
+      resolve, because analyze_image_with_vl_result() returned the "no
+      vision model configured" error before ever consulting fallbacks --
+      broke local/Cookbook-served vision models, which can only be added as
+      a fallback since the primary Model picker excludes offline entries.
+      (2) the prior GGUF quant <select> fix (forced reflow) was never
+      visually verified and did not fix the real bug: CSS zoom (the
+      "Larger" text-size setting, ui-scale-125) breaks native <select>
+      popup positioning in Chromium -- a browser-engine limitation with no
+      JS/CSS fix hook for a native control, requiring a full custom
+      dropdown replacement instead. (3) Settings > AI Defaults' Default
+      Chat Model and Vision Model were manual-only; the user asked for both
+      to auto-populate from whatever gets served via Cookbook.
+    file: specs/bugs/BUG-2026-09-24T193000-vision-fallback-and-gguf-dropdown-zoom.md
+    status: resolved
+    files_changed:
+      - src/document_processor.py
+      - static/js/cookbook.js
+      - static/style.css
+      - routes/cookbook_routes.py
+    approach: >-
+      (1) Resolve the primary vision model without an early return on
+      failure, always resolve vision_model_fallbacks too, and only report
+      "no vision model configured" if the combined candidate list is empty.
+      (2) Removed the ineffective forced-reflow line/comment and its
+      regression test, then replaced the native <select> with a custom
+      JS-positioned dropdown (hidden <select> kept as the state holder for
+      every existing .value/.options/change consumer; a trigger button
+      opens a position:fixed menu using the same zoom-ratio convention as
+      _showDepMenu() elsewhere in this file) -- live-verified with
+      Puppeteer under ui-scale-125, the exact condition that broke the
+      native popup. (3) Added _auto_set_chat_defaults(), called from both
+      return paths of _auto_register_llm_endpoint(), which unconditionally
+      writes default_endpoint_id/default_model = req.repo_id, plus
+      vision_model + vision_enabled when the launch command shows
+      --mmproj/--clip_model_path.
