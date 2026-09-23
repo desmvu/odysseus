@@ -172,7 +172,14 @@ function _redactServeStateForStorage(value) {
   if (Array.isArray(value)) return value.map(_redactServeStateForStorage);
   const safe = { ...value };
   for (const key of Object.keys(safe)) {
-    if (/token|password|passwd|secret|api[_-]?key/i.test(key)) {
+    // "token" (not "tokens") intentionally excludes the two speculative-
+    // decoding field names, spec_tokens / llama_spec_tokens — a count of
+    // draft tokens, not a credential. Without this exclusion this redaction
+    // (run on every named-preset save AND the auto-persisted per-repo serve
+    // state) silently deleted the field before it ever reached storage, so
+    // any value the user set there could never survive a save/reload — it
+    // always came back as the form's hardcoded '3' default on next render.
+    if (/token(?!s)|password|passwd|secret|api[_-]?key/i.test(key)) {
       delete safe[key];
     } else if (typeof safe[key] === 'string' && /cmd|command|args|env/i.test(key)) {
       safe[key] = _redactStoredCommand(safe[key]);

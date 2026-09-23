@@ -141,6 +141,17 @@ export function makeWindowResizable(content, options = {}) {
     // post-zoom and would render `zr` times too generous a cap).
     content.style.maxWidth = document.documentElement.offsetWidth + 'px';
     content.style.maxHeight = document.documentElement.offsetHeight + 'px';
+    // Clear a leftover min-height from modalManager's restore-from-minimize
+    // nudge (see _applyRestoreHeight in modalManager.js). That min-height is
+    // meant to preserve the window's prior size across a minimize/restore
+    // cycle, but if left in place it silently floors any SMALLER size a user
+    // then drags to here — style.height above gets set to the new, smaller
+    // value, but the box renders at the old min-height regardless (CSS
+    // min-height always wins over a smaller height), so the resize looks
+    // like it worked (the stored size changes) while the window visibly
+    // doesn't shrink. A manual resize is the more authoritative, explicit
+    // signal — it should always win over that earlier restore nudge.
+    content.style.minHeight = '';
     document.body.classList.add('window-resizing-active');
     document.body.style.cursor = cursorFor(edges);
   }

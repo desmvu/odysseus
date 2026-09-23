@@ -437,3 +437,36 @@ bugs:
       return; }` guard before hasContent/hasTitle are computed, so a
       missing Map entry can never reach the delete branch. Restored the
       affected document's is_active flag directly in the DB.
+  - bug_id: BUG-2026-09-24T120000
+    date: "2026-09-24"
+    severity: medium
+    priority: high
+    scope: cookbook
+    summary: >-
+      Four separate Cookbook/document bugs from one user todo list: (1)
+      vision model resolution broke after re-serving a non-MTP build
+      because llama-server's /v1/models id defaults to the raw --model
+      path with no --alias, so it changes on every quant/MTP/vision
+      re-serve; (2) minimize->restore->resize->move left the window
+      "stuck" near the top because a leftover restore-time min-height
+      silently floored a smaller manual resize; (3) the Direct Download
+      GGUF quant <select> rendered clipped on first open after a scan due
+      to a stale native-popup layout measurement; (4) MTP/vLLM
+      speculative token-count fields were silently stripped by an
+      overly-broad /token/i credential-redaction regex on every
+      preset/auto-save, so they always reverted to a hardcoded default.
+    file: specs/bugs/BUG-2026-09-24T120000-cookbook-vision-alias-resize-dropdown-mtp-redaction.md
+    status: resolved
+    files_changed:
+      - static/js/cookbook.js
+      - static/js/windowResize.js
+      - static/js/cookbookServe.js
+    approach: >-
+      (1) Added -a/--model_alias keyed off the repo id to the llama.cpp
+      serve commands. (2) Cleared content.style.minHeight when a manual
+      resize begins. (3) Forced a synchronous reflow (void
+      el.offsetHeight) right after replacing the <select>'s options. (4)
+      Changed the redaction regex to token(?!s) so it no longer matches
+      the plural spec_tokens/llama_spec_tokens field names. (2) and (4)
+      were confirmed live with Puppeteer against the running container
+      (headless Brave), including a before/after rect-dump repro for (2).

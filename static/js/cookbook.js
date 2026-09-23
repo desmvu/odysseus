@@ -902,8 +902,17 @@ export function _buildServeCmd(f, modelName, backend) {
       // llama-cpp-python takes the projector via --clip_model_path.
       _lcpExtra += ` --clip_model_path "${f._mmproj_path}"`;
     }
-    const _lcServer = `${lcPrefix}llama-server --model ${modelArg} --host 0.0.0.0 --port ${f.port || '8080'} -ngl ${f.ngl || '99'} -c ${f.ctx || '8192'}${_lcExtra}`;
-    const _lcpServer = `${lcPrefix}${py} -m llama_cpp.server --model ${modelArg} --host 0.0.0.0 --port ${f.port || '8080'} --n_gpu_layers ${f.ngl || '99'} --n_ctx ${f.ctx || '8192'}${_lcpExtra}`;
+    // Stable alias for the OAI-compatible /v1/models "id": without -a,
+    // llama-server reports the raw --model path, which changes on every
+    // re-serve that picks a different quant file (MTP on/off, Vision
+    // on/off, or a different quant altogether all select a different GGUF
+    // path). A setting like Settings -> Vision's saved model name then
+    // silently stops matching after any re-serve with a different config.
+    // Keying the alias off modelName (the repo id) keeps it constant across
+    // those re-serves.
+    const _llamaAlias = _shellQuote(modelName);
+    const _lcServer = `${lcPrefix}llama-server --model ${modelArg} --host 0.0.0.0 --port ${f.port || '8080'} -ngl ${f.ngl || '99'} -c ${f.ctx || '8192'} -a ${_llamaAlias}${_lcExtra}`;
+    const _lcpServer = `${lcPrefix}${py} -m llama_cpp.server --model ${modelArg} --host 0.0.0.0 --port ${f.port || '8080'} --n_gpu_layers ${f.ngl || '99'} --n_ctx ${f.ctx || '8192'} --model_alias ${_llamaAlias}${_lcpExtra}`;
     if (_localWindows) {
       // Local Windows serve is launched through Git Bash, so use the native
       // llama-server shape and let PATH resolve the CUDA Release wrapper.
@@ -2463,6 +2472,17 @@ function _wireTabEvents(body) {
           const count = byQuant.get(q).length;
           return `<option value="${esc(include)}">${esc(q)} (${count})</option>`;
         }).join('');
+        // Force a synchronous reflow right after replacing the options. Without
+        // this, the browser can still be holding a stale popup-height
+        // measurement from before this mutation (taken when the row was still
+        // showing the single "Scanning..." placeholder, or from before it was
+        // even display:flex) — so the FIRST time the user opens this <select>
+        // after a scan, the native option-list popup renders clipped to that
+        // stale, smaller height, and only shows every option correctly on a
+        // second open once the browser has recomputed layout in between.
+        // Reading a layout property here forces that recompute immediately,
+        // before the user can possibly open the popup.
+        void dlGgufQuant.offsetHeight;
         const first = dlGgufQuant.options[0];
         dlGgufNote.textContent = first ? first.value : '';
         return !!(first && first.value);
