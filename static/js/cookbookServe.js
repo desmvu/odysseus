@@ -3941,6 +3941,11 @@ async function _deleteCachedModel(repo, itemEl, skipConfirm = false, model = nul
   } else {
     target = `~/.cache/huggingface/hub/models--${repo.replace(/\//g, '--')}`;
   }
+  // Per-file gguf_files rel_path is relative to the HF cache's snapshots/
+  // dir (see collect_ggufs in cookbook_helpers.py: `sd + '/' + rel`), not
+  // the models--org--repo dir itself, so single-file deletes need the extra
+  // segment even though whole-repo deletes rm the models--... dir directly.
+  const filesTarget = (m && !m.is_local_dir) ? `${target}/snapshots` : target;
   let deleteChoice = { mode: 'repo' };
   const ggufFiles = _ggufFilesForModel(m);
   if (!skipConfirm) {
@@ -3958,11 +3963,14 @@ async function _deleteCachedModel(repo, itemEl, skipConfirm = false, model = nul
     const winTarget = target.startsWith('~')
       ? target.replace(/^~/, '$env:USERPROFILE').replace(/\//g, '\\')
       : target.replace(/\//g, '\\');
+    const winFilesTarget = filesTarget.startsWith('~')
+      ? filesTarget.replace(/^~/, '$env:USERPROFILE').replace(/\//g, '\\')
+      : filesTarget.replace(/\//g, '\\');
     if (deleteChoice.mode === 'files') {
       const targets = deleteChoice.files
         .map(f => _safeGgufRelPath(f.rel_path))
         .filter(Boolean)
-        .map(rel => `${winTarget}\\${rel.replace(/\//g, '\\')}`);
+        .map(rel => `${winFilesTarget}\\${rel.replace(/\//g, '\\')}`);
       if (!targets.length) return;
       cmd = targets.map(p => `Remove-Item -Force ${_psSingleQuote(p)} -ErrorAction SilentlyContinue`).join('; ');
     } else {
@@ -3977,12 +3985,13 @@ async function _deleteCachedModel(repo, itemEl, skipConfirm = false, model = nul
     // fallback. Quoting also handles spaces in custom model-dir paths.
     const unixTarget = target.startsWith('~') ? target.replace(/^~/, '$HOME') : target;
     if (deleteChoice.mode === 'files') {
+      const unixFilesTarget = filesTarget.startsWith('~') ? filesTarget.replace(/^~/, '$HOME') : filesTarget;
       const targets = deleteChoice.files
         .map(f => _safeGgufRelPath(f.rel_path))
         .filter(Boolean)
-        .map(rel => `${target.replace(/\/+$/, '')}/${rel}`);
+        .map(rel => `${filesTarget.replace(/\/+$/, '')}/${rel}`);
       if (!targets.length) return;
-      cmd = `rm -f ${targets.map(p => _shellPathExpr(p)).join(' ')} && find ${_shellPathExpr(target)} -type d -empty -delete`;
+      cmd = `rm -f ${targets.map(p => _shellPathExpr(p)).join(' ')} && find ${_shellPathExpr(unixFilesTarget)} -type d -empty -delete`;
     } else {
       cmd = `rm -rf "${unixTarget}"`;
     }

@@ -383,3 +383,33 @@ bugs:
       replacement sites -- mirroring the existing
       _mcp_document_transfer_tools carve-out already used at the same three
       sites.
+  - bug_id: BUG-2026-09-23T160000
+    date: "2026-09-23"
+    severity: medium
+    priority: high
+    scope: cookbook
+    summary: >-
+      A base GGUF and its -mtp speculative-decoding sibling (e.g. IQ3_S.gguf
+      and IQ3_S-mtp.gguf) collapsed into one quant label everywhere, since
+      gguf_quant()/_ggufQuantFromPath() stopped matching before the -mtp
+      suffix. Broke the delete-selection dialog (two checkboxes both
+      labeled IQ3_S), the download picker (one glob silently grabbed both
+      files), and -- a second, independent bug -- per-file delete was
+      missing the /snapshots path segment that HF-cache rel_path values are
+      relative to, so even a correctly-selected single-file delete silently
+      no-op'd.
+    file: specs/bugs/BUG-2026-09-23T160000-cookbook-mtp-gguf-delete-and-download-merge.md
+    status: resolved
+    files_changed:
+      - routes/cookbook_helpers.py
+      - static/js/cookbook.js
+      - static/js/cookbookServe.js
+    approach: >-
+      Extended both quant-extraction regexes with an optional (-mtp)?
+      capture (kept lowercase on the frontend since it feeds a literal
+      download glob); changed _ggufIncludeForQuant to anchor each quant's
+      glob to its matched files' actual trailing shape instead of a blanket
+      *quant*.gguf wildcard; added a separate filesTarget in
+      _deleteCachedModel that appends /snapshots for HF-cache models,
+      wired into both delete-command branches. Model grouping in the
+      Launch tab is unaffected (still keyed by repo_id).
