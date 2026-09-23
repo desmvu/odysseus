@@ -2368,24 +2368,47 @@ function _wireTabEvents(body) {
       return repo;
     }
     function _ggufQuantFromPath(path) {
+      // A trailing -mtp (speculative-decoding draft head, e.g.
+      // ...-IQ3_S-mtp.gguf) must stay part of the quant key, not merge into
+      // the base quant — otherwise the base and -mtp files collapse into one
+      // picker entry, and the resulting `*IQ3_S*.gguf` download glob (or a
+      // delete-selection checkbox labeled just "IQ3_S") silently matches
+      // both files instead of the one the user picked. Keep the -mtp suffix
+      // lowercase (matching real GGUF filenames) since this value also
+      // builds the literal glob in _ggufIncludeForQuant — uppercasing it
+      // would stop matching the on-disk file.
       const clean = String(path || '').split('?')[0];
       const parts = clean.split('/').filter(Boolean);
       const dir = parts.length > 1 ? parts[0] : '';
       const file = parts[parts.length - 1] || clean;
-      const dirQuant = dir.match(/^(?:I?Q\d(?:_[A-Z0-9]+){0,3}|UD-[A-Z0-9_]+)$/i);
-      if (dirQuant) return dirQuant[0].toUpperCase();
-      const fileQuant = file.match(/(?:^|[-_.\/])((?:I?Q\d(?:_[A-Z0-9]+){0,3})|(?:UD-[A-Z0-9_]+))(?=(?:[-_.]|\.gguf|$))/i);
-      return fileQuant ? fileQuant[1].toUpperCase() : '';
+      const dirQuant = dir.match(/^(?:I?Q\d(?:_[A-Z0-9]+){0,3}|UD-[A-Z0-9_]+)(-mtp)?$/i);
+      if (dirQuant) return dirQuant[1] ? `${dirQuant[0].slice(0, -dirQuant[1].length).toUpperCase()}-mtp` : dirQuant[0].toUpperCase();
+      const fileQuant = file.match(/(?:^|[-_.\/])((?:I?Q\d(?:_[A-Z0-9]+){0,3})|(?:UD-[A-Z0-9_]+))(-mtp)?(?=(?:[-_.]|\.gguf|$))/i);
+      return fileQuant ? `${fileQuant[1].toUpperCase()}${fileQuant[2] ? '-mtp' : ''}` : '';
     }
     function _ggufIncludeForQuant(files, quant) {
       const matches = files.filter(f => _ggufQuantFromPath(f) === quant);
       if (!matches.length) return '';
       const dirs = Array.from(new Set(matches.map(f => f.includes('/') ? f.split('/').slice(0, -1).join('/') : '')));
+      // A bare trailing wildcard (`*quant*.gguf`) also matches a sibling file
+      // whose quant string is a superset by suffix (e.g. selecting IQ3_S
+      // would also glob-match IQ3_S-mtp.gguf, since "IQ3_S" is a substring
+      // of it). Only keep the trailing wildcard when a genuine multi-part
+      // split file needs it (foo-QUANT-00001-of-00002.gguf); otherwise
+      // anchor directly to ".gguf" so the pattern can't cross into another
+      // quant's file.
+      const quantEsc = String(quant).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const tailRe = new RegExp(`${quantEsc}\\.gguf$`, 'i');
+      const needsWildcardTail = matches.some(f => {
+        const base = f.includes('/') ? f.split('/').pop() : f;
+        return !tailRe.test(base || '');
+      });
+      const suffix = needsWildcardTail ? `*${quant}*.gguf` : `*${quant}.gguf`;
       if (dirs.length === 1) {
         const prefix = dirs[0] ? `${dirs[0]}/` : '';
-        return `${prefix}*${quant}*.gguf`;
+        return `${prefix}${suffix}`;
       }
-      return `*${quant}*.gguf`;
+      return suffix;
     }
     function _hideGgufPicker(message = '') {
       if (dlGgufRow) dlGgufRow.style.display = 'none';
