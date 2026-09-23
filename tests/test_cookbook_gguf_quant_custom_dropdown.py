@@ -67,3 +67,23 @@ def test_trigger_label_syncs_after_a_scan_completes():
         "expected the trigger label to be resynced both when the "
         "'Scanning...' placeholder is set and once real options land"
     )
+
+
+def test_scan_skips_redundant_rescan_of_an_already_scanned_repo():
+    """Clicking the trigger blurs #cookbook-dl-repo, whose 'blur' listener
+    unconditionally calls _scanGgufRepo as a safety-net rescan. Without a
+    dedup guard that rescan resets the select to a single 'Scanning...'
+    placeholder right as the trigger's click handler reads .options, so the
+    dropdown wouldn't open on the same click that caused the blur -- only
+    on a second click, after the redundant rescan finished. Live-reproduced
+    and fixed by returning early when the repo already has real (non-
+    placeholder) options for the current dataset.repo.
+    """
+    text = SRC.read_text(encoding="utf-8")
+    scan_start = text.index("async function _scanGgufRepo(rawValue)")
+    placeholder_idx = text.index('dlGgufQuant.innerHTML = \'<option value="">Scanning...</option>\';', scan_start)
+    body = text[scan_start:placeholder_idx]
+    assert "dlGgufQuant.dataset.repo === repo" in body
+    assert "dlGgufQuant.options.length > 0" in body
+    assert "dlGgufQuant.options[0].value !== ''" in body
+    assert "return true;" in body

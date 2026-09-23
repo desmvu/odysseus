@@ -2488,6 +2488,15 @@ function _wireTabEvents(body) {
         _hideGgufPicker();
         return false;
       }
+      // Clicking the quant trigger button blurs #cookbook-dl-repo, which
+      // also calls this function as a safety-net rescan. Without this
+      // guard that rescan unconditionally resets the select to a single
+      // "Scanning..." placeholder, wiping out the just-populated options
+      // right as the trigger's click handler reads them -- the dropdown
+      // wouldn't open on the same click that blurred the input, only on a
+      // second click after the redundant rescan finished.
+      const alreadyScanned = dlGgufQuant.dataset.repo === repo && dlGgufQuant.options.length > 0 && dlGgufQuant.options[0].value !== '';
+      if (alreadyScanned) return true;
       dlGgufRow.style.display = 'flex';
       dlGgufQuant.innerHTML = '<option value="">Scanning...</option>';
       dlGgufQuant.dataset.repo = repo;

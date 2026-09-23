@@ -141,6 +141,28 @@ Only this one control was replaced — no other native `<select>`s in
 Cookbook were confirmed broken under `ui-scale-125` this session, so none
 were touched speculatively.
 
+**Follow-up bug in the custom dropdown itself (found on user retest):**
+clicking the trigger required two clicks — the first click re-triggered
+"Scanning..." instead of opening the menu, the second click (after the
+rescan finished) opened it correctly. Root cause: `#cookbook-dl-repo`
+already had a `blur` listener (`dlInput.addEventListener('blur', () =>
+_scanGgufRepo(dlInput.value))`) predating this fix, added as a safety-net
+rescan for whenever focus left the repo field. Clicking the new trigger
+button blurs that input as a side effect, so the SAME click that should
+open the menu also fired this listener — and `_scanGgufRepo()` had no dedup
+guard, so it unconditionally reset `dlGgufQuant.innerHTML` to a single
+"Scanning..." placeholder synchronously (before the click handler even ran)
+regardless of whether the repo had already been scanned. Fixed by adding an
+early-return guard at the top of `_scanGgufRepo()`: if
+`dlGgufQuant.dataset.repo === repo` and the select already holds real
+(non-placeholder) options, skip the rescan entirely. Live-reproduced with
+Puppeteer (single real click, checked 50ms later): the menu now opens
+immediately with all 8 real options intact on the first click.
+
+**verify:** `test_scan_skips_redundant_rescan_of_an_already_scanned_repo`
+added to `tests/test_cookbook_gguf_quant_custom_dropdown.py` (6 tests
+total for this control).
+
 ## 3. Follow-up: auto-set Settings > AI Defaults from every Cookbook serve
 
 Requested by the user in the same follow-up: "Default Chat Model" should
